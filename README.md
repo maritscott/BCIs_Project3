@@ -2,25 +2,34 @@
 Written 4/25/24 by Ronald Bryant, Sadegh Khodabandeloo, and Marit Scott 
 
 ## Dataset
+The dataset is described by Acampora et al. 2021. https://pubmed.ncbi.nlm.nih.gov/33659590/. 
+The data can be downloaded from: https://data.mendeley.com/datasets/px9dpkssy8/draft?a=7140665d-a0f0–40b2-a9fd-a731d21b6222   (Requires an account to download.)
 
-Dataset described by Acampora et al. 2021. Paper downloaded from https://pubmed.ncbi.nlm.nih.gov/33659590/.
-This dataset contains raw eeg data related to SSVEP signals acquired from eleven volunteers by using an acquisition equipment based on a single-channel dry-sensor recording device. The recorded EEG data from a single volunteer contains the response to an intermittent source of light, which is emitted at four different frequencies, namely 8.57 Hz (F1), 10 Hz (F2), 12 Hz (F3) and 15 Hz. Each freq stimulus has duration of 16s and the sampling freq is 256. There are 11 csv files in this dataset from 11 subjects. Each csv files contains 4096 rows (number of samples) and 1 column including 4 numbers (4 stimuli frequencies).
+This dataset contains raw eeg data related to SSVEP signals acquired from eleven volunteers by using acquisition equipment based on a single-channel dry-sensor recording device. The recorded EEG data from a single volunteer contains the response to an intermittent source of light, which is sequentially emitted at four different frequencies, namely 8.57 Hz (F1), 10 Hz (F2), 12 Hz (F3), or 15 Hz (F4). Each recording has a duration of 16s and is sampled at 256 Hz. There are 11 csv files in this dataset from 11 subjects. Each csv files contains 4096 rows (sequential time points) and a column that includes four voltages separated by semicolons (';'), one for each of the four stimulus freqeuncies at a time point (row).  The precise voltages are unknown.  Voltage readings range from 0 to 1023 and represent digital bins returned from the DAC that digitized the signal.
 
 ## Loading the Data
-Since the data is in csv format, we use one of the python's library dedicated to reading csv files called panda. Thus, importing panda to load the dataset is required.
-At first the fillowing function should be used for separating 4 columns. 
-import pandas as pd
+The data files are labeled '.csv' but are not truely comma separated.  They are text files with semicolon separated values.  We use the python library pandas for importing the files into a pandas dataframe. Then each row of the data frame is converted to numeric values that are ultimately stored in a numpy array of shape (4096,4).
 
-#get data
-data = pd.read_csv('subject11.csv') #extracting the data from the csv file for subject 11 for example
-len_eeg = data.shape[0]
-data_new = np.zeros((len_eeg,4)) #creating a matrix of zeros
-for i in range(len_eeg): # looping through each sample to separate 4 numbers to 4 different column
-    line = data.iloc[i].values
-    lineslist = line[0].split(';')
-    data_new[i,:] = [float(x) for x in lineslist]
-#And at the end the raw data should be divided by 500 for scaling purposes
-data_final = data_new/500   #arbitrary scalling
+The following lines of python code create the numpy array for the subject number 11.
+#######################################################################
+import pandas as pd
+import numpy as np
+
+#load data file
+df = pd.read_csv('subject11.csv') #load data to the dataframe df
+
+#initialize numpy array to hold eeg data for each frequency. 
+len_eeg = df.shape[0]
+num_freqs = 4       # based on descripition of the data files
+eeg = np.zeros((len_eeg, num_freqs)) # initialize array 
+
+#loop through each row of dataframe, convert to number and populate array
+for time_index in range(len_eeg): 
+    line_str = df.iloc[i].values  #returns string containing data
+    str_list = line_str[0].split(';')  #split string at semicolons
+    eeg[i,:] = [float(x) for x in str_list] #convert strings to numbers
+                                            #and populates the eeg data array 
+#############################################################################
 
 
 
