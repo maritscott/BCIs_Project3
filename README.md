@@ -11,12 +11,16 @@ This dataset contains raw eeg data related to four SSVEP signals acquired from e
 The data files are labeled '.csv' but are not truely comma separated.  They are text files with semicolon separated values.  We use the python library pandas for importing the files into a pandas dataframe. Then each row of the data frame is converted to integer values that are ultimately stored in a numpy array of time x frequency with a shape of (4096,4).
 
 The following lines of python code create the numpy array for the subject number 11.
-#######################################################################
+
+
+```python
 import pandas as pd
 import numpy as np
 
 #load data file
+
 df = pd.read_csv('subject11.csv') #load data to the dataframe df
+
 
 #initialize numpy array to hold eeg data for each frequency. 
 len_eeg = df.shape[0]
@@ -27,6 +31,7 @@ eeg = np.zeros((len_eeg, num_freqs)) # initialize array
 for time_index in range(len_eeg): 
     line_str = df.iloc[i].values  #returns string containing data
     str_list = line_str[0].split(';')  #split string at semicolons
-    eeg[i,:] = [int(x) for x in str_list] #convert strings to numbers
-                                            #and populates the eeg data array 
-#########################################################################
+    eeg[i,:] = [int(x) for x in str_list] #convert strings to numbers #and populates the eeg data array
+
+```
+
