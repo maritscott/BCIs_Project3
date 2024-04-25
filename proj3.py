@@ -3,7 +3,7 @@
 """
 Created on Fri Apr 19 14:08:45 2024
 
-@author: marit scott, sadegh khodabandeloo, ron bryant
+@author: marit scott, sadegh khodabandeloo, ron bryant, michael gallo
 """
 
 import numpy as np
@@ -28,17 +28,20 @@ def load_subjects(params, subject='All', zoom=False):
         DESCRIPTION. The default is 'All'.  of an integer from the closed
                         set [0,11] is entered, only that individuals data
                         is loaded and the EEG data is plotted.
+    zoom : boolean    default False
+        DESCRIPTION.  If set to True and a single subject selected the
+                    eeg is displayed for just 1 sec of data (vs 16)
 
     Returns
     -------
     eeg_array : 2d array of float    num_eegs x num_times
         DESCRIPTION.  EEG from the selected subject (or all subjects)
-                    at 4 frequencies are returned. Each subjects EEGS 
+                    at 4 frequencies are returned. Each subject's EEGs 
                     are in adjacent rows. 
-                    The EEG values are in arbitray units since an
-                    unknown amplification occurs during acquisition.
-                    The sampling is 4096 point at 256 Hz = 16 seconds.
-    '''    
+                    The EEG values are integers in the closed interval
+                    [0, 1023].  The sampling is 4096 time point at 
+                    256 Hz = 16 seconds. 
+    '''
     
     def load_one(subject_number, num_freqs):
     
@@ -56,10 +59,10 @@ def load_subjects(params, subject='All', zoom=False):
         Returns
         -------
         eeg : 2d array of float    num_freqs x num_times
-            DESCRIPTION.  an EEG from num_freqs stimulation frequencies 
-                        The EEG values are in arbitray units since an
-                        unknown amplification occurs during acquisition.
-                        The sampling is 4096 point at 256 Hz = 16 seconds. 
+            DESCRIPTION. A subject's EEG from num_freqs stimulation 
+                        frequencies. The EEG values are integers in the 
+                        closed interval [0, 1023].  The sampling is 
+                        4096 time points at 256 Hz = 16 seconds. 
         '''
         
         df = pd.read_csv(f'subject{subject_number}.csv') 
@@ -71,8 +74,10 @@ def load_subjects(params, subject='All', zoom=False):
         for df_index in range(len_eeg):
             df_line = df.iloc[df_index].values  # a ';' separated string 
             str_list = df_line[0].split(';')
-            eeg[:,df_index] = [float(x) for x in str_list]
+            eeg[:,df_index] = [int(x) for x in str_list]
         return eeg
+
+
 
     num_freqs = params['num_frequencies']
     len_eeg = params['num_times']
@@ -85,6 +90,8 @@ def load_subjects(params, subject='All', zoom=False):
         for sub_num in range(n_subjects):
             eeg_array[(sub_num*num_freqs):((sub_num+1)*num_freqs) ,:] =   \
                             load_one(sub_num+1, num_freqs)
+                            
+                            
     else:  # load indicated subject and plot EEG for each stimulus
         eeg_array = load_one(subject, num_freqs)
         # display data
@@ -108,10 +115,53 @@ def load_subjects(params, subject='All', zoom=False):
     return eeg_array    
 
 
-   
-
-def epoch_data(eeg_data, time_period, overlap, parameters):
+def is_saturated(epoch, criterion):
     '''
+    Helper function for epoch_data() determines if an epoch has saturated
+    it's ADC for more than  criterion  consequtive time points
+
+    Parameters
+    ----------
+    epoch : TYPE     1d array of integers 
+        DESCRIPTION.   EEG values in close interval [0, 1023] from the ADC
+    criterion : TYPE  interger
+        DESCRIPTION.   if  criterion 0's or 1023's apear sequentially in
+                the epoch the function returns True  (else False)
+
+    Returns
+    -------
+    bool    
+        DESCRIPTION.  see criterion above
+
+    '''
+    one_less = criterion - 1
+    #detects the indices wher there are cosecutive 0's or 1023's
+    inds_low = np.where(epoch == 0)[0]
+    inds_high = np.where(epoch == 1023)[0]
+    # nuber of each
+    n_inds_low = inds_low.shape[0]
+    n_inds_high = inds_high.shape[0]
+    # doesn't exceed criterion return False
+    if (n_inds_low < criterion) and  (n_inds_high < criterion):
+        return False
+    #might exceed criterion   Look at 0's
+    if n_inds_low > one_less:
+        for idx in range(n_inds_low-one_less):
+            if (inds_low[idx]) == (inds_low[idx+one_less] - one_less):
+                return True
+    # then look at 1023's
+    if n_inds_high >one_less:
+        for idx in range(n_inds_high - one_less):
+            if (inds_high[idx]) == (inds_high[idx + one_less] - one_less):
+                return True
+    #couldn't find enough consecutive saturations
+    return False
+  
+
+def epoch_data(eeg_data, time_period, overlap, parameters, 
+               saturation_criterion):
+    '''
+    Helper function for ger_feature_vectors()
     Return epochs of data of length time_period statrting from 
     the begining of eeg_data  with overlapping of time period of 
     proportion overlap.
@@ -133,7 +183,12 @@ def epoch_data(eeg_data, time_period, overlap, parameters):
         DESCRIPTION.  Contains basic parameters describing the data files.
                     See the test file for specifics for this data set. 
                     Includes fs (sampling freqeuncy)
-
+    saturation_criterion : integer 
+        DESCRIPTION.  Number of consecutive eeg values at maximum (1023)
+                        or minimum (0) to qualify for censoring an epoch.
+                        A large value (4000) eliminates censoring.   4 is
+                        probably a minimal meaningful value.
+        
     Returns
     -------
     epochs : 2d array of float of size 
@@ -149,7 +204,11 @@ def epoch_data(eeg_data, time_period, overlap, parameters):
                       the classes are in adjacent rows and are in order of 
                       ascending stimulus frequency and each subject has 
                       n_epochs_per_eeg in each class (all adjacent rows).
+    is_censored : 1d array of booleans 
+        DESCRIPITION. Indicaates which of the epochs meet censoring 
+                    criterion.
     '''
+    
     
     # data_parameters
     fs = parameters['fs']
@@ -169,7 +228,7 @@ def epoch_data(eeg_data, time_period, overlap, parameters):
     if False:  # visualize segemntation of data to form epochs
         print(start_times)
         print(end_times)
-        
+    
     # initialize epochs
     num_epochs_per_eeg = len(start_times)
     num_epochs = eeg_data.shape[0] * num_epochs_per_eeg
@@ -186,11 +245,18 @@ def epoch_data(eeg_data, time_period, overlap, parameters):
                     start_times[epoch_per_eeg_index]:   \
                                             end_times[epoch_per_eeg_index]]
             epoch_classes[epoch_index] = eeg_index % num_freqs
+    
+    is_epoch_censored = np.zeros(num_epochs, dtype=bool)
+    # determine if the epochs needs to be censored.
+    for epoch_index in range(num_epochs):
+        is_epoch_censored[epoch_index] = is_saturated(epochs[epoch_index],
+                                                      saturation_criterion)
  
-    return  epochs, epoch_classes
+    return  epochs, epoch_classes, is_epoch_censored
 
 
-def get_feature_vectors(eeg_data, period, overlap, params):
+def get_feature_vectors(eeg_data, period, overlap, params,
+                        saturation_criterion=4):
     '''
     Epochs the eeg_data based on the period and overlap and generates 
     and returns feature vectors and classes for each epoch.
@@ -213,7 +279,12 @@ def get_feature_vectors(eeg_data, period, overlap, params):
         DESCRIPTION.  Contains basic parameters describing the data files.
                     See the test file for specifics for this data set. 
                     Includes fs (sampling freqeuncy)
-
+    saturation_criterion : interger (optional with default of 4)
+        DESCRIPTION.  Number of consecutive eeg values at maximum (1023)
+                        or minimum (0) to qualify for censoring an epoch.
+                        A large value (4000) eliminates censoring.   4 is
+                        probably a minimal meaningful value.
+                        
     Returns
     -------
     feature_vectors : 2d array of float   
@@ -226,31 +297,42 @@ def get_feature_vectors(eeg_data, period, overlap, params):
                       each feature vectors. In the feature_vectors 
                       the classes are in adjacent rows and are in order of 
                       ascending stimulus frequency and each subject has 
-                      n_epochs_per_eeg in each class (all adjacent rows).   '''
+                      n_epochs_per_eeg in each class (all adjacent rows).
+    is_censored : 1d array of booleans 
+        DESCRIPITION. Indicaates which of the epochs meet censoring 
+                    criterion.
+    '''
     
-    epochs, vector_classes = epoch_data(eeg_data, period, overlap, params)
+    epochs, vector_classes, is_censored    \
+                 = epoch_data(eeg_data, period, overlap,   \
+                                        params, saturation_criterion)
 
     # fft of epochs
     ffts = abs(np.fft.rfft(epochs,axis=-1))
     
     # select range of frequencies for feature vector
     df = 1/period  # frequency resolution
-    freq_lower = 4
+    freq_lower = 4         # 4 to 32 Hz encompasses all stimuli
     freq_higher = 32 
     index_lower = int(round(freq_lower/df))
     index_higher = int(round(freq_higher/df))
     
     features  = ffts[:,index_lower:index_higher]
-    #noramlize
+    #noramlize features
     feature_vectors = (features - features.mean(axis=-1, keepdims=True) )   \
                     / features.std(axis=-1,keepdims=True)
     
-    return feature_vectors, vector_classes  
+    return feature_vectors, vector_classes, is_censored  
 
-def split_feature_set(features, classes, proportion_train, parameters):
+
+
+
+def split_feature_set(features, classes, is_censored,
+                      proportion_train, parameters):
     '''
     Randomly splits the feature vectors into training sets and testing sets
-
+    after censoring based on is_censored
+    
     Parameters
     ----------
     features : 2d array of float   
@@ -264,6 +346,9 @@ def split_feature_set(features, classes, proportion_train, parameters):
                       the classes are in adjacent rows and are in order of 
                       ascending stimulus frequency and each subject has 
                       n_epochs_per_eeg in each class (all adjacent rows).    
+    is_censored : 1d array of booleans 
+        DESCRIPITION. Indicaates which of the epochs meet censoring 
+                    criterion.
     proportion_train : float  from open inteval (0,1)
         DESCRIPTION.  Proportion of data to put in traing set.  Remainder is 
                     put in testing set.
@@ -284,8 +369,11 @@ def split_feature_set(features, classes, proportion_train, parameters):
         DESCRIPTION.  Classes of the testing set
     '''
     
+    #removed censored
+    features = features[~is_censored]
+    classes = classes[~is_censored]
     
-    #generate a random permutation of the feature vectors
+    #generate a random permutation of the uncensored feature vectors
     set_indices = np.arange(features.shape[0])
     permuted_indices = np.random.permutation(set_indices)
     
@@ -300,10 +388,13 @@ def split_feature_set(features, classes, proportion_train, parameters):
     
     return training_set, testing_set, training_class, testing_class 
 
-def biased_split_feature_set(features, classes, parameters, test_list):
+
+
+def biased_split_feature_set(features, classes, is_censored, 
+                             parameters, test_list):
     '''
     Returns a biased testing set of the all epochs from the 1 or 2 
-    subjects in the test_list
+    subjects in the test_list (after censoring based on is_censored)
 
     Parameters
     ----------
@@ -318,6 +409,9 @@ def biased_split_feature_set(features, classes, parameters, test_list):
                       the classes are in adjacent rows and are in order of 
                       ascending stimulus frequency and each subject has 
                       n_epochs_per_eeg in each class (all adjacent rows).    
+    is_censored : 1d array of booleans 
+        DESCRIPITION. Indicaates which of the epochs meet censoring 
+                    criterion.
     parameters : Dictionary    
         DESCRIPTION.  Contains basic parameters describing the data files.
                     See the test file for specifics for this data set. 
@@ -342,27 +436,37 @@ def biased_split_feature_set(features, classes, parameters, test_list):
     num_feature_vectors = features.shape[0]
     features_per_subject = int(num_feature_vectors / parameters['num_subjects'])
  
-    #This few lines take advantage of the ordering of the feature vectors
+    #These few lines take advantage of the ordering of the feature vectors
     #in the array to select the subjects in test_list to be the testing_set
     testing_indices = np.zeros(features_per_subject * len(test_list))
     testing_indices[0:features_per_subject] =       \
            np.arange((test_list[0]-1)* features_per_subject, 
                      test_list[0] * features_per_subject)
-    if len(test_list) == 2:
+    if len(test_list) == 2:  
         testing_indices[features_per_subject: ] =       \
               np.arange((test_list[1]-1) * features_per_subject,   \
                         test_list[1] * features_per_subject)
-    
+    #genetate testing set
     testing_set = features[testing_indices.astype(int),:]
     testing_class = classes[testing_indices.astype(int)]
+    #eliminate censored
+    is_censored_testing = is_censored[testing_indices.astype(int)]
+    testing_set = testing_set[~is_censored_testing]
+    testing_class = testing_class[~is_censored_testing]
     
+    # remainder are training set
     mask = np.isin(np.arange(0,num_feature_vectors), 
                    testing_indices.astype(int))
+    #generate training set (including censored)
     training_set = features[~mask,:]
     training_class = classes[~mask]
+    #eliminate censored
+    is_censored_training = is_censored[~mask]
+    training_set = training_set[~is_censored_training]
+    training_class = training_class[~is_censored_training]
     
     
-    #generate permutations of the training and testing sets
+    #generate random permutations of the training and testing sets
     set_indices = np.arange(testing_set.shape[0])
     permuted_indices = np.random.permutation(set_indices)
     testing_set=testing_set[permuted_indices]
@@ -378,41 +482,44 @@ def biased_split_feature_set(features, classes, parameters, test_list):
 
 
 
-def train_and_test_LR(training_data, training_class,
-                            testing_data, testing_class, single_freq = None):
-    # this implements a logistic regression two class model using 
-    # keras/tensor flow that classifies a vector as being 'single_freq' 
-    # versus not 'single_freq.  If single_freeq is left as None
+def train_and_test_NN(training_data, training_class,
+                            testing_data, testing_class, 
+                            single_freq = None):
+    # Implements a NN with a single hidden layer using tensorflow/keras.
+    # A two class model classifies a vector as being 'single_freq' 
+    # versus not 'single_freq (ovr).  If single_freeq is left as None
     # a four class model is used.
     
     if single_freq == None:
         num_out_layers = 4
         test_class = testing_class
         train_class = training_class
-    else:  # reassign classes as 0 or 1
+    else:  # reassign classes as 0 or 1 for ovr
         num_out_layers = 2
+        # identify class 1 (e.g. single_freq)
         training_ones = np.where(training_class == single_freq)
         testing_ones = np.where(testing_class == single_freq)
+        # initiate all to 0 the single frequency classes to 1
         train_class = np.zeros_like(training_class)
         train_class[training_ones] = 1
         test_class = np.zeros_like(testing_class)
         test_class[testing_ones] = 1
         
-    
+    # set up NN
     model = tf.keras.models.Sequential([
-         tf.keras.layers.Input((training_data.shape[1],)), # instead of below
-         #tf.keras.layers.Flatten(),
+         tf.keras.layers.Input((training_data.shape[1],)), 
+         #hidden layer
          tf.keras.layers.Dense(100, activation='relu'),
          #tf.keras.layers.Dropout(0.2),   # randomly sets 20% of units to 0
          tf.keras.layers.Dense(num_out_layers)
          ])
-
+    # set loss function
     loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
     
     model.compile(optimizer='adam',
                   loss=loss_fn,
                   metrics=['accuracy'])
-
+    #train
     model.fit(training_data, train_class, epochs=10)
 
     test_loss, test_accuracy = model.evaluate(testing_data,  
@@ -423,31 +530,39 @@ def train_and_test_LR(training_data, training_class,
       model,
       tf.keras.layers.Softmax()
     ])
+    
+########################################################################    
+################# How to capitalize on these probabilities for confidence
+##############    in the decision???????????
     prediction_probabilities = probability_model.predict(testing_data)
- 
+    if single_freq == None:
+        print(f'average winning prob = {np.mean(np.max(prediction_probabilities,  axis=-1))}')
+        pred_class = np.argmax(prediction_probabilities, axis = -1)
+        report(testing_class, pred_class)
     return test_accuracy, prediction_probabilities
 
 
-def train_and_test_LR_ovr(training_data, 
+def train_and_test_NN_ovr(training_data, 
                                     training_class,
                                     testing_data, 
                                     testing_class):
     # ovr --> one versus the rest
-    # initialize
+    # initialize to save the results of each call to train_and_test_NN()
     probabilities = np.zeros((testing_data.shape[0],4))
     
-    # traina and test each frequency as a 2 class against the other 
+    # trains and test each frequency as a 2 class against the other 
     # frequencies as a group  (runs a 2-class 4 times.)  Compare the 
     # probability of each class from the individual runs
     # against the others as a group and assigh to the class with the 
     # highest probabiity    
     for freq_to_test in range(4):
-        accuracy, predictions = train_and_test_LR(training_data, 
+        accuracy, predictions = train_and_test_NN(training_data, 
                                         training_class,
                                         testing_data, 
                                         testing_class, 
                                         single_freq=freq_to_test)
         probabilities[:,freq_to_test] = predictions[:,1]
+
 
     pred_class = np.argmax(probabilities, axis=-1)
     accuracy = np.sum(pred_class == testing_class)       \
@@ -473,7 +588,6 @@ def report(testing_class, predicted_class):
     for i in range(predicted_class.shape[0]):
         c_matrix[int(testing_class[i]), int(predicted_class[i])] += 1
 
-    
     class_names=[0,1,2,3] # name  of classes
     fig, ax = plt.subplots()
     tick_marks = np.arange(len(class_names))
@@ -490,5 +604,27 @@ def report(testing_class, predicted_class):
     plt.Text(0.5,257.44,'Predicted label');
 
 
-    
+def simple_LR(training_data, training_class,
+                                    testing_data, 
+                                    testing_class):
 
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.metrics import accuracy_score
+    
+    
+    # Create and train the logistic regression model
+    model = LogisticRegression(max_iter=500, multi_class='ovr')
+    model.fit(training_data, training_class)
+    
+    # Make predictions on the test set
+    pred_class = model.predict(testing_data)
+    
+    # Calculate accuracy
+    accuracy = accuracy_score(testing_class, pred_class)
+    print("Accuracy (simple LR):", accuracy)
+    print("Number of iterations:", model.n_iter_)
+    
+                          
+    report(testing_class, pred_class)
+
+    return accuracy
