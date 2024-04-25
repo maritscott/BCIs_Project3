@@ -1,5 +1,5 @@
 # BCIs_Project3
-Written 4/25/24 by Ronald Bryant, Sadegh Khodabandeloo, and Marit Scott 
+Written 4/25/24 by Ronald Bryant, Michael Gallo, Sadegh Khodabandeloo, and Marit Scott 
 
 ## Dataset
 The dataset is described by Acampora et al. 2021. https://pubmed.ncbi.nlm.nih.gov/33659590/. 
