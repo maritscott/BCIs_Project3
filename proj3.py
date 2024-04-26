@@ -10,6 +10,8 @@ import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
 import tensorflow as tf
+import seaborn as sns
+
 #from tensorflow.keras.layers import Dense, Flatten, Conv2D
 #from tensorflow.keras import Model
 
@@ -483,14 +485,17 @@ def biased_split_feature_set(features, classes, is_censored,
 
 
 def train_and_test_NN(training_data, training_class,
-                            testing_data, testing_class, 
-                            single_freq = None):
+                            testing_data, testing_class,
+                            eval_params,
+                            single_freq = None,
+                            plot_confusion_table=False):
     # Implements a NN with a single hidden layer using tensorflow/keras.
     # A two class model classifies a vector as being 'single_freq' 
     # versus not 'single_freq (ovr).  If single_freeq is left as None
     # a four class model is used.
     
-    if single_freq == None:
+    
+    if single_freq == None:     # alias for 4-class training
         num_out_layers = 4
         test_class = testing_class
         train_class = training_class
@@ -499,7 +504,7 @@ def train_and_test_NN(training_data, training_class,
         # identify class 1 (e.g. single_freq)
         training_ones = np.where(training_class == single_freq)
         testing_ones = np.where(testing_class == single_freq)
-        # initiate all to 0 the single frequency classes to 1
+        # initiate all classes to 0 except single frequency to Class 1
         train_class = np.zeros_like(training_class)
         train_class[training_ones] = 1
         test_class = np.zeros_like(testing_class)
@@ -513,19 +518,22 @@ def train_and_test_NN(training_data, training_class,
          #tf.keras.layers.Dropout(0.2),   # randomly sets 20% of units to 0
          tf.keras.layers.Dense(num_out_layers)
          ])
+    
     # set loss function
     loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
     
-    model.compile(optimizer='adam',
-                  loss=loss_fn,
+    model.compile(optimizer='adam', # Aplies adaptive step sizes and momentum
+                  loss=loss_fn,         # to gradient descent.
                   metrics=['accuracy'])
     #train
-    model.fit(training_data, train_class, epochs=10)
+    model.fit(training_data, train_class, epochs=10, verbose = 0)
 
     test_loss, test_accuracy = model.evaluate(testing_data,  
-                                           test_class, verbose=2)
-    print('\nTest Accuracy:', test_accuracy)
-
+                                           test_class, verbose=0)
+    #print('\nTest Accuracy:', test_accuracy)
+    
+    # softmax allows treatment of numeric output as probability of each
+    # class
     probability_model = tf.keras.Sequential([
       model,
       tf.keras.layers.Softmax()
@@ -534,18 +542,22 @@ def train_and_test_NN(training_data, training_class,
 ########################################################################    
 ################# How to capitalize on these probabilities for confidence
 ##############    in the decision???????????
-    prediction_probabilities = probability_model.predict(testing_data)
+    prediction_probabilities = probability_model.predict(testing_data, verbose=0)
+  
     if single_freq == None:
-        print(f'average winning prob = {np.mean(np.max(prediction_probabilities,  axis=-1))}')
+        #print(f'average winning prob in NN 4Class = {np.mean(np.max(prediction_probabilities,  axis=-1))}')
         pred_class = np.argmax(prediction_probabilities, axis = -1)
-        report(testing_class, pred_class)
+        test_accuracy = report(testing_class, pred_class, 
+                               prediction_probabilities, eval_params,
+                               'NN 4Class', plot_confusion_table)
     return test_accuracy, prediction_probabilities
 
 
 def train_and_test_NN_ovr(training_data, 
                                     training_class,
                                     testing_data, 
-                                    testing_class):
+                                    testing_class, eval_params,
+                                    plot_confusion_table=False):
     # ovr --> one versus the rest
     # initialize to save the results of each call to train_and_test_NN()
     probabilities = np.zeros((testing_data.shape[0],4))
@@ -560,6 +572,7 @@ def train_and_test_NN_ovr(training_data,
                                         training_class,
                                         testing_data, 
                                         testing_class, 
+                                        eval_params,
                                         single_freq=freq_to_test)
         probabilities[:,freq_to_test] = predictions[:,1]
 
@@ -568,7 +581,8 @@ def train_and_test_NN_ovr(training_data,
     accuracy = np.sum(pred_class == testing_class)       \
                                 /testing_class.shape[0]
                               
-    report(testing_class, pred_class)
+    report(testing_class, pred_class, probabilities, eval_params, 'NN ovr',
+           plot_confusion_table)
 
     if False:   #for testing
         print('probs are:')
@@ -581,32 +595,77 @@ def train_and_test_NN_ovr(training_data,
     return accuracy
 
 
-def report(testing_class, predicted_class):
-    import seaborn as sns
+def report(testing_class, predicted_class, prediction_probabilities,
+           eval_params, predictor_name, plot_confusion_table):
 
+    # create confusion matrix
     c_matrix = np.zeros((4,4))
     for i in range(predicted_class.shape[0]):
         c_matrix[int(testing_class[i]), int(predicted_class[i])] += 1
+    # compute accuracy  = sum of diagonals / sum of all elements  
+    accuracy = np.trace(c_matrix) / np.sum(c_matrix)
+    
+    class_sensitivities = np.diag(c_matrix) / np.sum(c_matrix, axis=-1) 
+    class_FP_rate = 1-np.diag(c_matrix) / np.sum(c_matrix, axis=0) 
+    class_sensitivities = np.round(class_sensitivities,3)
+    class_FP_rate = np.round(class_FP_rate,3)    
+    
+    
+    if plot_confusion_table:
+        print(f'\n\n{predictor_name}: accuracy {np.round(accuracy,3)}')
+        print(f'Class sensitivities (class 0-3):{class_sensitivities}')
+        print(f'      False Classification Rate (class 0-3):{class_FP_rate}')
 
-    class_names=[0,1,2,3] # name  of classes
-    fig, ax = plt.subplots()
-    tick_marks = np.arange(len(class_names))
-    plt.xticks(tick_marks, class_names)
-    plt.yticks(tick_marks, class_names)
-    # create heatmap
-    sns.heatmap(pd.DataFrame(c_matrix), annot=True, cmap="YlGnBu" ,fmt='g')
-    ax.xaxis.set_label_position("top")
-    plt.tight_layout()
-    plt.title('Confusion matrix', y=1.1)
-    plt.ylabel('Actual label')
-    plt.xlabel('Predicted label')
-
-    plt.Text(0.5,257.44,'Predicted label');
-
+        class_names=['8.57Hz','10Hz','12Hz','15Hz'] # name  of classes
+        
+        #determine figure number
+        if predictor_name == 'NN 4Class':
+            fignum = 1
+        elif predictor_name == 'NN ovr':
+            fignum = 2
+        elif predictor_name == 'LR ovr':
+            fignum = 3
+        else:
+            fignum = 4            
+        fig, ax = plt.subplots(num=fignum, clear=True, figsize=(8,8))
+       
+        # create heatmap
+        sns.heatmap(pd.DataFrame(c_matrix), annot=True, cmap="YlGnBu" ,fmt='g')
+    
+        # axes
+        class_names=['8.57Hz','10Hz','12Hz','15Hz'] # name  of classes
+        tick_marks = np.arange(len(class_names)) + 0.5
+        plt.xticks(tick_marks, labels=class_names)
+        plt.yticks(tick_marks, labels=class_names)
+        plt.ylabel('Actual label')
+        plt.xlabel('Predicted label')
+    
+        # output parameters to shorten the next text for subtitle line
+        s1 = eval_params['period']
+        s2 = np.round(eval_params['overlap']*100,0)
+        s3 = np.round(eval_params['proportion_train']*100,0)
+        if eval_params['is_random_split']:
+            s4 = f'Random split: {s3}% data for training'
+        else:
+            s4 = f'Biased split: {s3}% data for training'
+        if eval_params['saturation_criterion'] < 100:
+            s5 = f"Censoring (dt = {eval_params['saturation_criterion']})"
+        else:
+            s5 = 'No censoring'
+        #subtitle line
+        plt.text(2.5,-0.05, f'{predictor_name}:   Seconds(overlap):{s1}({s2}%),  {s4},  {s5} ', ha='center')
+        #title line
+        plt.text(2.5, -0.15, f'Confusion Matrix: Overall accuracy {np.round(accuracy*100,1)}%', fontsize = 16, ha='center')
+    
+        plt.tight_layout()
+        plt.show()
+        
+    return accuracy
 
 def simple_LR(training_data, training_class,
                                     testing_data, 
-                                    testing_class):
+                                    testing_class, eval_params,
+                                    plot_confusion_table=False):
 
     from sklearn.linear_model import LogisticRegression
     from sklearn.metrics import accuracy_score
@@ -621,10 +680,11 @@ def simple_LR(training_data, training_class,
     
     # Calculate accuracy
     accuracy = accuracy_score(testing_class, pred_class)
-    print("Accuracy (simple LR):", accuracy)
-    print("Number of iterations:", model.n_iter_)
+    #print("Accuracy (simple LR):", accuracy)
+    #print("Number of iterations:", model.n_iter_)
     
-                          
-    report(testing_class, pred_class)
+    probabilities  = 0
+    report(testing_class, pred_class,probabilities, eval_params, 
+           'LR ovr', plot_confusion_table)
 
     return accuracy

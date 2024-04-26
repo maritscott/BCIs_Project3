@@ -12,10 +12,11 @@ TO DO:
     allow splitting of one or two subjects for testing  NEEDS COMPLETION
     label time graph
 """
+
+#### Cell 0
 import numpy as np
 import proj3 as p3
 from matplotlib import pyplot as plt
-#import pandas as pd
 
 # dataset parameters  defined for source data set
 fs = 256             # sampling frequency Hz
@@ -28,40 +29,36 @@ data_parameters = {'fs' : fs, 'num_subjects' : num_subjects,
                    'frequencies' : frequencies,
                    'num_times' : num_times }
 
-#%%   Load All Data
+#%% Cell 1  Load All Data
 
 eeg_data = p3.load_subjects(data_parameters)
     
 
-#%%  Extract features
+#%% Cell 2 Extract features
 
 # extraction parameters   
-period = 6   #seconds
+period = 6  #seconds
 overlap = 0.95   # fractional overlap with prior period
 saturation_criterion = 4000
 ###  To censor epochs containing saturated ADC values set
 ###  saturation_criterion to 4 (this is a minimal, but reasonable value). 
 ###  A very large value eliminates any censoring  (e.g. 4000)
 
-
-
 features, classes, is_censored =      \
         p3.get_feature_vectors(eeg_data, period, overlap, data_parameters,
                                saturation_criterion)
 
+#%% Cell 3 Partition training and testing sets  
 
+is_random_split = True
 
-#%%  Partition training and testing sets  
-
-random_split = True
-
-if random_split: # Random feature vectpr assignment to train and test sets
-    proportion_train = 0.85
+if is_random_split: # Random feature vector assignment to train and test sets
+    proportion_train = 0.8
     
     training_data, testing_data, training_class, testing_class  =    \
                     p3.split_feature_set(features, classes, is_censored,
                                          proportion_train, data_parameters)
-
+    test_subjects = []
 else:  # Testing set all of 1 or 2 subjects and others used for training   
     test_subjects = [1,2] # list of 1 or 2 integers from closed set [1,11]
     
@@ -70,54 +67,161 @@ else:  # Testing set all of 1 or 2 subjects and others used for training
                                                 is_censored,
                                                 data_parameters, 
                                                 test_subjects)
+    n_subs = data_parameters['num_subjects']
+    proportion_train = (n_subs - len(test_subjects))/n_subs
+#%% Cell 4  Record evaluation parameters to pass to function report()
+eval_parameters = {'period' : period,
+                   'overlap' : overlap,
+                   'saturation_criterion' : saturation_criterion,
+                   'is_random_split' : is_random_split,
+                   'proportion_train' : proportion_train,
+                   'test_subjects' : test_subjects}
 
-
-#%%  NN 
+#%% Cell 5  NN 4Class
 
 
 accuracy_4class, _ = p3.train_and_test_NN(training_data, training_class,
                                 testing_data, 
-                                testing_class)
+                                testing_class, eval_parameters,
+                                plot_confusion_table=True)
 
-print(f'Accuracy for Period of {period} with overlap {overlap}')
-print(f' NN (4 Class); {accuracy_4class}')
+print(f'\nAccuracy for Period of {period} with overlap {overlap}')
+print(f' NN 4Class accuracy: {accuracy_4class}')
 
 
-#%%  LR_ovr
+#%% Cell 6  LR_ovr
 
 accuracy_ovr = p3.train_and_test_NN_ovr(training_data, 
                                     training_class,
                                     testing_data, 
-                                    testing_class)
+                                    testing_class, eval_parameters,
+                                    plot_confusion_table=True)
 
-print(f'Accuracy for Period of {period} with overlap {overlap}')
-print(f'ovr accuracy = {accuracy_ovr}')
+print(f'\nAccuracy for Period of {period} with overlap {overlap}')
+print(f' NN ovr accuracy: {accuracy_ovr}')
 
-#%%  Simple LR
+#%% Cell 7  LR ovr
 
 accuracy_LR = p3.simple_LR(training_data, training_class,
                                     testing_data, 
-                                    testing_class)
+                                    testing_class, eval_parameters,
+                                    plot_confusion_table=True)
 
-#%% 
-print(f'\nAccuracy for Period of {period} seconds with overlap {overlap}')
-print(f'Spliting of data sets is random = {random_split}')
+print(f'\nAccuracy for Period of {period} with overlap {overlap}')
+print(f' LR ovr accuracy: {accuracy_LR}')
+
+#%%  Cell 8
+print('\n\n\n\nOverall comparison -- 3 methods ')
+print(f'Accuracy for Period of {period} seconds with overlap {overlap}')
+print(f'Spliting of data sets is random = {is_random_split}')
 print(f'Saturation_criterion = {saturation_criterion}')
-print(f'  NN (4 Class): {np.round(accuracy_4class,4)}')
-print(f'  NN (ovr)    : {np.round(accuracy_ovr,4)}')
-print(f'  LR (ovr)    : {np.round(accuracy_LR,4)}')
-
+print('Accuracy')
+print(f'  NN 4 Class: {np.round(accuracy_4class,4)}')
+print(f'  NN ovr    : {np.round(accuracy_ovr,4)}')
+print(f'  LR ovr    : {np.round(accuracy_LR,4)}')
+ 
 
 # the following cells test individual funtions
 if False:
-#%%   Plot and display individual subject
+#%% Cell 9  Plot and display individual subject
     eeg_array = p3.load_subjects(data_parameters,
                              subject=7, # choose from closed set [1,11]
                              zoom=False) # or leave out for 'All'
                                         
 
-#%%  Tests for which of the subjects have saturated the values on the ADC
+#%% Cell 10   Tests for which of the subjects have saturated the values
+              # on the ADC
     for subject in range(11):
         eeg_array = p3.load_subjects(data_parameters, subject= subject+1)
         for freq in range(4):
             print(f'Subject {subject+1}. Saturated low:{np.any(eeg_array[freq,:]==0)}, high:{np.any(eeg_array[freq,:]==1023)}')
+
+
+#%% Cell 11  Constructing a NNclass to perform back prop
+
+if False:   # UNDER CONSTRUCRTION
+    from NNclass import *
+    
+    xtr = training_data.T
+    xte = testing_data.T 
+    feature_len = training_data.shape[1]
+    trlen = training_class.shape[0]
+    telen = testing_class.shape[0]
+    # Class defined by one-hot coding
+    ctr = np.zeros((4,trlen))
+    cte = np.zeros((4,telen))
+    for i in range(trlen):
+        ctr[training_class[i].astype(int), i] = 1
+    for i in range(telen):
+        cte[testing_class[i].astype(int), i] = 1
+    # intstiate and run NN    
+    nn = NeuralNetwork([feature_len,10,4],learning_rate=0.1)
+    nn.train(xtr,ctr,200)#[:,trpoints],y[:,trpoints],epochs = 1000)
+    
+    print('\n\n\nHand made 2-layer 4-class NN with back propogation')
+    print('(in process of development)')
+    print(f' Train score = {nn.score2(xtr,training_class)}%')
+    print(f' Test score = {nn.score2(xte,testing_class)}%')
+
+#%% Cell 12     Statistical comparison of methods
+# This cell runs each of 3 networks through multiple repetions, 
+# resplitting training and testing epochs data each time and compares
+#  the accuracy of the three training methods (as per Acampora et. al.)
+
+############# To Run this cell ##############
+#    1) Go to cells 2 and 3  to select  epoching and splitting paramenters
+#    2) Run cells 0,1,2,3,4
+#    3) Define repetitions below
+#    4) Set first line below to True
+#    5) Run this cell.
+
+if False:
+    repetitions = 10   # This was used Acampora et. al.
+
+    #####################################################################
+    # Prepare accuracy_array
+    accuracy_array = np.zeros([3, repetitions])
+
+    for rep_index in range(repetitions):
+
+        accuracy_array[0, rep_index], _ =    \
+               p3.train_and_test_NN(training_data, training_class,
+                                    testing_data, 
+                                    testing_class, eval_parameters)
+
+        accuracy_array[1, rep_index] =       \
+               p3.train_and_test_NN_ovr(training_data, 
+                                        training_class,
+                                        testing_data, 
+                                        testing_class, eval_parameters)
+
+        accuracy_array[2, rep_index] =        \
+               p3.simple_LR(training_data, training_class,
+                                        testing_data, 
+                                        testing_class, eval_parameters)
+        # resplit       
+        if is_random_split: # Random feature vector assignment to train and test sets
+            training_data, testing_data, training_class, testing_class  =    \
+                        p3.split_feature_set(features, classes, is_censored,
+                                             proportion_train, data_parameters)
+        else:  # Testing set all of 1 or 2 subjects and others used for training   
+            training_data, testing_data, training_class, testing_class  =    \
+                        p3.biased_split_feature_set(features, classes, 
+                                                    is_censored,
+                                                    data_parameters,
+                                                    test_subjects) 
+        print(f'Finished repetition {rep_index}  . . .')
+    means = np.round(np.mean(accuracy_array, axis = -1),4)
+    sds = np.round(np.std(accuracy_array, axis = -1),4)          
+    print(f'\n\n\nRepetitions = {repetitions}')
+    print(f'Accuracy for Period of {period} seconds with overlap {overlap}')
+    print(f'Spliting of data sets is random = {is_random_split}')
+    print(f'Training proportion is {proportion_train}')
+    print(f'Saturation_criterion = {saturation_criterion}')
+    print('Accuracy')
+    print(f'   NN 4Class: {means[0]} +/- {sds[0]}' )
+    print(f'   NN ovr   : {means[1]} +/- {sds[1]}' )
+    print(f'   LR ovr   : {means[2]} +/- {sds[1]}' )
+              
+
+
