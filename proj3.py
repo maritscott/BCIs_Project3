@@ -11,6 +11,8 @@ import pandas as pd
 from matplotlib import pyplot as plt
 import tensorflow as tf
 import seaborn as sns
+import pickle
+
 
 #from tensorflow.keras.layers import Dense, Flatten, Conv2D
 #from tensorflow.keras import Model
@@ -27,11 +29,11 @@ def load_subjects(params, subject='All', zoom=False):
         DESCRIPTION.  Contains basic parameters describing the data files.
                     See the test file for specifics for this data set.
     subject : Optional integer
-        DESCRIPTION. The default is 'All'.  If an integer from the closed
+        DESCRIPTION. The default is 'All'.  of an integer from the closed
                         set [0,11] is entered, only that individuals data
                         is loaded and the EEG data is plotted.
     zoom : boolean    default False
-        DESCRIPTION.  If set to True and a single subject is selected, the
+        DESCRIPTION.  If set to True and a single subject selected the
                     eeg is displayed for just 1 sec of data (vs 16)
 
     Returns
@@ -45,7 +47,8 @@ def load_subjects(params, subject='All', zoom=False):
                     256 Hz = 16 seconds. 
     '''
     
-    def load_one(subject_number):
+    def load_one(subject_number, num_freqs):
+    
         '''
         The file for the subject is read and the eeg at each stimulus
         frequency is returned.
@@ -54,6 +57,8 @@ def load_subjects(params, subject='All', zoom=False):
         ----------
         subject_number : integer from the closed set [0, 11]
             DESCRIPTION.  Data for this subject is loaded
+        num_freqs : integer 
+            DESCRIPTION. number stimulus frequencies in file
 
         Returns
         -------
@@ -64,12 +69,16 @@ def load_subjects(params, subject='All', zoom=False):
                         4096 time points at 256 Hz = 16 seconds. 
         '''
         
-        # Load the data using a semicolon as the separator
-        df = pd.read_csv(f'subject{subject_number}.csv', sep=';') 
-
-        # Transpose to a numpy array of integers in the shape (num_freq x num_times)
-        eeg = df.values.astype(int).T
-
+        df = pd.read_csv(f'subject{subject_number}.csv') 
+                                                # not actually a CSV
+        len_eeg = df.shape[0]
+        #initialize
+        eeg = np.zeros((num_freqs, len_eeg))
+        # read line-by-line and populate eeg
+        for df_index in range(len_eeg):
+            df_line = df.iloc[df_index].values  # a ';' separated string 
+            str_list = df_line[0].split(';')
+            eeg[:,df_index] = [int(x) for x in str_list]
         return eeg
 
 
@@ -84,11 +93,11 @@ def load_subjects(params, subject='All', zoom=False):
         # populate with data from each subject
         for sub_num in range(n_subjects):
             eeg_array[(sub_num*num_freqs):((sub_num+1)*num_freqs) ,:] =   \
-                            load_one(sub_num+1)
+                            load_one(sub_num+1, num_freqs)
                             
                             
     else:  # load indicated subject and plot EEG for each stimulus
-        eeg_array = load_one(subject)
+        eeg_array = load_one(subject, num_freqs)
         # display data
         freqs = params['frequencies']
         time = np.arange(0,len_eeg)/params['fs']
@@ -113,21 +122,20 @@ def load_subjects(params, subject='All', zoom=False):
 def is_saturated(epoch, criterion):
     '''
     Helper function for epoch_data() determines if an epoch has saturated
-    it's ADC for more than  `criterion`  consequtive time points
+    it's ADC for more than  criterion  consequtive time points
 
     Parameters
     ----------
     epoch : TYPE     1d array of integers 
         DESCRIPTION.   EEG values in close interval [0, 1023] from the ADC
-    criterion : TYPE  Integer
-        DESCRIPTION.   If  `criterion`  0's or 1023's appear sequentially in
+    criterion : TYPE  interger
+        DESCRIPTION.   if  criterion 0's or 1023's apear sequentially in
                 the epoch the function returns True  (else False)
 
     Returns
     -------
-    bool
-        DESCRIPTION.   True if  `criterion`  or more 0's or 1023's appear sequentially
-                in an epoch. (else False)
+    bool    
+        DESCRIPTION.  see criterion above
 
     '''
     one_less = criterion - 1
@@ -157,10 +165,10 @@ def is_saturated(epoch, criterion):
 def epoch_data(eeg_data, time_period, overlap, parameters, 
                saturation_criterion):
     '''
-    Helper function for get_feature_vectors()
-    Returns epochs of eeg data, each with a length of `time_period`,
-    starting from the beginning of `eeg_data` with overlapping of 
-    time period of proportion `overlap`.
+    Helper function for ger_feature_vectors()
+    Return epochs of data of length time_period statrting from 
+    the begining of eeg_data  with overlapping of time period of 
+    proportion overlap.
 
     Parameters
     ----------
@@ -172,8 +180,8 @@ def epoch_data(eeg_data, time_period, overlap, parameters,
     time_period : float  from the open interval (0, 16)
         DESCRIPTION.  Duration of each epoch
     overlap : float    from open interval (0, 1)
-        DESCRIPTION.  percentage that intervals may overlap in decimal form.
-                    With a large overlap many epochs can be obtained from the 
+        DESCRIPTION.  amount intervals may overlap.  With a large 
+                    overlap many epochs can be obtained from the 
                     16 second EEG even with a relatively large time_period
     parameters : Dictionary    
         DESCRIPTION.  Contains basic parameters describing the data files.
@@ -261,11 +269,11 @@ def get_feature_vectors(eeg_data, period, overlap, params,
     ----------
     eeg_data : eeg : 2d array of float 
                     (num_subjects * num_stim_freqs) x num_times
-        DESCRIPTION.  for each subject an EEG from num_freqs stimulation 
-                    frequencies The EEG values are in arbitrary units since
+        DESCRIPTION.  for each s.ubject an EEG from num_freqs stimulation 
+                    frequencies The EEG values are in arbitray units since
                     an unknown amplification occurs during acquisition.
                     The sampling is 4096 point at 256 Hz = 16 seconds.
-    period : float from the open interval (0, 16)
+    period : float  from the open interval (0, 16)
         DESCRIPTION.  Duration of each epoch
     overlap : float    from open interval (0, 1)
         DESCRIPTION.  amount intervals may overlap.  With a large 
@@ -275,7 +283,7 @@ def get_feature_vectors(eeg_data, period, overlap, params,
         DESCRIPTION.  Contains basic parameters describing the data files.
                     See the test file for specifics for this data set. 
                     Includes fs (sampling freqeuncy)
-    saturation_criterion : Integer (optional with default of 4)
+    saturation_criterion : interger (optional with default of 4)
         DESCRIPTION.  Number of consecutive eeg values at maximum (1023)
                         or minimum (0) to qualify for censoring an epoch.
                         A large value (4000) eliminates censoring.   4 is
@@ -589,8 +597,66 @@ def train_and_test_NN_ovr(training_data,
     return accuracy
 
 
+
+def simple_LR(training_data, training_class,
+                                    testing_data, 
+                                    testing_class, eval_params,
+                                    plot_confusion_table=False):
+
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.metrics import accuracy_score
+    
+    
+    # Create and train the logistic regression model
+    model = LogisticRegression(max_iter=500, multi_class='ovr')
+    model.fit(training_data, training_class)
+    
+    # Make predictions on the test set
+    pred_class = model.predict(testing_data)
+    
+    # Calculate accuracy
+    accuracy = accuracy_score(testing_class, pred_class)
+    #print("Accuracy (simple LR):", accuracy)
+    #print("Number of iterations:", model.n_iter_)
+    
+    probabilities  = 0
+    report(testing_class, pred_class,probabilities, eval_params, 
+           'LR ovr', plot_confusion_table)
+
+    return accuracy
+
+
+
+
 def report(testing_class, predicted_class, prediction_probabilities,
-           eval_params, predictor_name, plot_confusion_table):
+           eval_params, predictor_name, plot_confusion_table, save_to):
+    '''
+    This function is called at the end of training each model to calculate 
+    the accuracy and electively plot a confusion table.    
+
+    Parameters
+    ----------
+    testing_class : TYPE
+        DESCRIPTION.
+    predicted_class : TYPE
+        DESCRIPTION.
+    prediction_probabilities : TYPE
+        DESCRIPTION.
+    eval_params : TYPE
+        DESCRIPTION.
+    predictor_name : TYPE
+        DESCRIPTION.
+    plot_confusion_table : TYPE
+        DESCRIPTION.
+    save_to : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    accuracy : TYPE
+        DESCRIPTION.
+
+    '''
 
     # create confusion matrix
     c_matrix = np.zeros((4,4))
@@ -656,29 +722,239 @@ def report(testing_class, predicted_class, prediction_probabilities,
         
     return accuracy
 
-def simple_LR(training_data, training_class,
-                                    testing_data, 
-                                    testing_class, eval_params,
-                                    plot_confusion_table=False):
 
-    from sklearn.linear_model import LogisticRegression
-    from sklearn.metrics import accuracy_score
-    
-    
-    # Create and train the logistic regression model
-    model = LogisticRegression(max_iter=500, multi_class='ovr')
-    model.fit(training_data, training_class)
-    
-    # Make predictions on the test set
-    pred_class = model.predict(testing_data)
-    
-    # Calculate accuracy
-    accuracy = accuracy_score(testing_class, pred_class)
-    #print("Accuracy (simple LR):", accuracy)
-    #print("Number of iterations:", model.n_iter_)
-    
-    probabilities  = 0
-    report(testing_class, pred_class,probabilities, eval_params, 
-           'LR ovr', plot_confusion_table)
+def run_set(data_parameters, eval_parameters, save_to,
+            periods=[2,3,4,5,6], 
+            overlaps=[0.35, 0.5, 0.65, 0.8, 0.9, 0.95],
+            models=['NN 4Class', 'NN ovr', 'LR'], 
+            iterations = 10):
+    '''
+    Computes the accuracy of each model for each iteration at all the
+    peroids/overlaps combinations.   It is designed to reproduce the 
+    comparisons made in Acampora et. al.  The periods and overlaps are 
+    those used byby them.  models is a list of our two neural network 
+    models and their logistic regression model for comparison.  Using 
+    the default values above this code takes an hour to run on my MacBook
 
-    return accuracy
+    Parameters
+    ----------
+    data_parameters : dictionary
+        DESCRIPTION.  A dictiionary describing the parameters of the 
+                    data set.  See the test file (test_proj3.py) for
+                    definition.
+    eval_parameters : dictionary
+        DESCRIPTION. A ditionary containing the elective parameters we
+                use to control our models, censor epochs if we elect to,
+                and otherwise evaluate the data. See the test file (test_proj3.py) for
+                definition.
+    save_to : String
+        DESCRIPTION.  A valid path/file_name to save the results of this 
+                    function.  The '.pkl' extensiion is added to save_to
+    periods : list of integers
+        DESCRIPTION. List of time intervals to epoch eeg_data
+    overlaps : list of floats in closed interval [0.35, 0.95]
+        DESCRIPTION.  List of ovelaps used in epoching successive epocchs
+    models : list of strings
+        DESCRIPTION.  Names of the training models 
+    iterations : integer
+        DESCRIPTION.  Number of iteraations through data
+
+    Returns
+    -------
+    full_set : dictionary
+        DESCRIPTION.  The result of are in full_accuracy array.  Other
+                    are saved so the parameters of the computation are
+                    known.
+                full_set = {'full_accuracy_array': full_accuracy_array,
+                            'eval_params': eval_parameters,
+                            'periods': periods,
+                            'overlaps' : overlaps,
+                            'models' : models,
+                            'iterations' : iterations}
+
+    '''
+    n_periods = len(periods)
+    n_overlaps = len(overlaps)
+    n_models = len(models)
+    print(f'Running {n_periods*n_overlaps*iterations} training reps on {n_models} models')
+    
+    eeg_data = load_subjects(data_parameters)
+    
+    full_accuracy_array=np.zeros((n_periods, n_overlaps, 
+                                  n_models, iterations))
+    rep_counter = 0
+    for period_index in range(n_periods):
+        period = periods[period_index]
+        eval_parameters['period'] = period
+        for overlap_index in range(n_overlaps):
+            overlap = overlaps[overlap_index]
+            eval_parameters['overlap'] = overlap
+          
+            features, classes, is_censored =      \
+                    get_feature_vectors(eeg_data, period, overlap, data_parameters,
+                                          eval_parameters[ 'saturation_criterion'])
+    
+            for iter_index in range(iterations):
+                rep_counter += 1
+                print(f'Doing repetition number {rep_counter}')
+                #randomly split training/testing each iteration
+                training_data, testing_data, training_class, testing_class  =    \
+                            split_feature_set(features, classes, is_censored,
+                            eval_parameters['proportion_train'], data_parameters)
+    
+                #first model
+                full_accuracy_array[period_index, overlap_index, 0, iter_index], _ =    \
+                       train_and_test_NN(training_data, training_class,
+                                            testing_data, 
+                                            testing_class, eval_parameters)
+        
+                #second model
+                full_accuracy_array[period_index, overlap_index, 1, iter_index] =       \
+                       train_and_test_NN_ovr(training_data, 
+                                                training_class,
+                                                testing_data, 
+                                                testing_class, eval_parameters)
+        
+                #third model
+                full_accuracy_array[period_index, overlap_index, 2, iter_index] =        \
+                       simple_LR(training_data, training_class,
+                                                testing_data, 
+                                                testing_class, eval_parameters)
+
+    full_set = {'full_accuracy_array': full_accuracy_array,
+                'eval_params': eval_parameters,
+                'periods': periods,
+                'overlaps' : overlaps,
+                'models' : models,
+                'iterations' : iterations}
+    
+    # save to disk
+    with open( save_to +'.pkl', 'wb') as f:
+        pickle.dump(full_set, f)
+
+    return full_set
+
+def load_processed_data(file_name): 
+    '''
+    Loads and returns an exisiting .pkl file containg a set fo processed 
+    data produced by function run_set()
+
+    Parameters
+    ----------
+    file_name : String
+        DESCRIPTION. An exiting file produced by function run_set()
+
+    Returns
+    -------
+    full_set : dictionary
+        DESCRIPTION. A dictionary containg a full set as defined in 
+                    run_set() above.
+
+    '''
+
+    with open(file_name, 'rb') as f:
+        full_set = pickle.load(f)
+    print(f'File {file_name} loaded ... Keys are {full_set.keys()}')
+    return full_set
+
+
+def plot_cross_val(full_set, model_idx,save_to=None):
+    '''
+    Plots and optionally saves a figure displaying accuracy with error
+    bars from a series of periods and overlaps obtained with a list of 
+    training models in a format that is comparable to Acampora et. al. 
+
+    Parameters
+    ----------
+    full_set : dictionary
+        DESCRIPTION.  Contains the specifications and testing accruacy 
+                array from a list of training models. The format of 
+                fullset must meet the criteria specified in the function
+                run_set() (which generates a compatable dictionary.)
+    method_idx : integer
+        DESCRIPTION.  The index in to the models list (=fullset['methods']
+                to plot in the figure.
+    save_to : String, optional
+        DESCRIPTION. The default is None. 'path/filename' for saved figure
+
+    Returns
+    -------
+    None.
+
+    '''
+    #unpack specifications
+    periods = full_set['periods']
+    overlaps = full_set['overlaps']
+    models = full_set['models']
+    n_periods = len(periods)
+    
+    # unpack accuracy data and compute statistics
+    # data_array is 4d   n_periods x n_overlaps x n_models x n_iterations
+    data_arr = full_set['full_accuracy_array'] 
+    means = np.mean(data_arr, axis = -1)
+    sds = np.std(data_arr, axis=-1)
+    
+    # Colors for each set of periods    Note: max periods = 5
+    colors = ['red', 'green', 'blue', 'black', 'orange' ]
+    delta = [-0.002, -0.001,0, 0.001, 0.002]  #small offsets to avoid error
+                                                #bar overlaps in zoomed figures
+    fig,ax = plt.subplots(num=2, clear=True)
+    
+    overlap_arr = np.array(overlaps)   # x-axis in the plots below
+    
+    # plot full set of data
+    for period_index in range(n_periods-1,0,-1): # do it backwards so that
+                                            # the legend corresponds 
+                                            # better with the plot lines
+        dx = delta[period_index]
+        ax.errorbar(overlap_arr+ dx, means[period_index, :, model_idx ], 
+                     yerr=sds[period_index, :, model_idx],
+                     color=colors[period_index],
+                     marker= '.', label=f'{periods[period_index]} sec.',
+                     linestyle='dotted')    
+    plt.xticks([0.35,0.5,0.65, 0.8, 0.9, 0.95])
+    plt.xlabel('Overlap Proportion')
+    plt.ylabel('Proportion Correct')
+    plt.ylim(0,1)
+    plt.legend()
+
+    # this is a bit clumsy.  Datum we need is a bit buried in dict 
+    # structures just put censoring criterion in title of figure
+    sat_crit = full_set['eval_params']['saturation_criterion'] 
+    if sat_crit >= 4096:
+        censored = ' (uncensored)'
+    else:
+        censored = f" (censored at {sat_crit})"
+    plt.title(f'{models[model_idx]}: Cross Validation vs Overlap for All Periods' + censored)
+    plt.grid()
+    
+    # replot in right lower area a zoomed image of the
+    #                   high accuracy part of the above.
+    # Position for the zoomed plot within the main plot
+    left, bottom, width, height = 0.5, 0.15, 0.4, 0.35
+    ax_zoom = fig.add_axes([left, bottom, width, height])
+    
+    for period_index in range(n_periods-1,0,-1): 
+        dx = delta[period_index]
+        ax_zoom.errorbar(overlap_arr+ dx, means[period_index, :, model_idx ], 
+                     yerr=sds[period_index, :, model_idx],
+                     color=colors[period_index],
+                     marker= '.', label=f'{periods[period_index]} Sec.',
+                     linestyle='dotted')    
+    
+    # want grid lines, but not x-labels    
+    plt.xticks(ticks = [ 0.9, 0.95], labels = [' ', ' '])
+    # region to plot
+    plt.xlim(0.89, 0.96)  
+    plt.ylim(0.8,0.975)
+    # label grid lines inside zoomed plot
+    plt.text(0.9,0.81,'0.9', ha = 'center')
+    plt.text(0.95,0.81,'0.95', ha = 'center')
+    plt.grid()
+
+    plt.show()
+
+    if not (save_to == None):
+        plt.savefig(save_to)
+    
+    return

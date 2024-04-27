@@ -6,11 +6,10 @@ Created on Fri Apr 19 14:31:39 2024
 @author: marit scott, sadegh khodabandeloo, ron bryant, michael gallo
 
 TO DO:
-    Add confusion table, and figures of merit
+    Add  figures of merit
     Add my NN Class
-    load_subject to return all if requested.
-    allow splitting of one or two subjects for testing  NEEDS COMPLETION
-    label time graph
+    
+    
 """
 
 #### Cell 0
@@ -37,12 +36,12 @@ eeg_data = p3.load_subjects(data_parameters)
 #%% Cell 2 Extract features
 
 # extraction parameters   
-period = 6  #seconds
+period =  4 #seconds
 overlap = 0.95   # fractional overlap with prior period
-saturation_criterion = 4000
+saturation_criterion = num_times
 ###  To censor epochs containing saturated ADC values set
 ###  saturation_criterion to 4 (this is a minimal, but reasonable value). 
-###  A very large value eliminates any censoring  (e.g. 4000)
+###  A very large value eliminates any censoring  (e.g. >= num_times)
 
 features, classes, is_censored =      \
         p3.get_feature_vectors(eeg_data, period, overlap, data_parameters,
@@ -175,8 +174,8 @@ if False:   # UNDER CONSTRUCRTION
 #    4) Set first line below to True
 #    5) Run this cell.
 
-if False:
-    repetitions = 10   # This was used Acampora et. al.
+if True:
+    repetitions = 20   # This was used Acampora et. al.
 
     #####################################################################
     # Prepare accuracy_array
@@ -223,5 +222,48 @@ if False:
     print(f'   NN ovr   : {means[1]} +/- {sds[1]}' )
     print(f'   LR ovr   : {means[2]} +/- {sds[1]}' )
               
+#%%  Full run of comparisons. THIS CELL TAKES AN HOUR TO RUN! 5x6x3x10
+# Results of run with (censored at 4) without censoring are saved in
+# censiredSet.pkl and fullset).pkl respectively   plots of each are in
+# .png files   fig6*.pkl and fig7*.pkl
+
+if True:
+    # full set of training options per Acampora et. al.
+    periods = [2,3,4,5,6]
+    overlaps = [0.35, 0.5, 0.65, 0.8, 0.9, 0.95]
+    models = ['NN 4Class', 'NN ovr', 'LR']
+    iterations = 10
+    
+    # Set these two   save_to  and eval_parameters
+    #data_parameters defined in Cell 0 for the data set
+    save_to = 'test'     # data is saved to the this file and returned
+    # leave these alone except possibly for 
+    # saturation_citerion   and   proportion_train.
+    eval_parameters = {'period' : periods[0],
+                       'overlap' : overlaps[0],
+                       'models' : models,
+                       'saturation_criterion' : 4096,   # use 4 or 4096
+                       'is_random_split' : True,
+                       'proportion_train' : 0.8,
+                       'test_subjects' : []}
+    
+    
+    full_set = p3.run_set(data_parameters, eval_parameters, save_to,
+                          periods=periods, overlaps=overlaps, 
+                          models=models, iterations=iterations )
+    
+#%%   load pickle file of the processed data 
+    
+    #set file_name to an existing valid file produced by above cell
+    file_name = 'fullset0.pkl'
+    
+    full_set = p3.load_processed_data(file_name) 
+
+    
+
+    #%%   
+                               
+model_idx = 2
+p3.plot_cross_val(full_set, model_idx, save_to='fig7LR')
 
 
