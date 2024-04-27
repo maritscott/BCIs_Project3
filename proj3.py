@@ -27,11 +27,11 @@ def load_subjects(params, subject='All', zoom=False):
         DESCRIPTION.  Contains basic parameters describing the data files.
                     See the test file for specifics for this data set.
     subject : Optional integer
-        DESCRIPTION. The default is 'All'.  of an integer from the closed
+        DESCRIPTION. The default is 'All'.  If an integer from the closed
                         set [0,11] is entered, only that individuals data
                         is loaded and the EEG data is plotted.
     zoom : boolean    default False
-        DESCRIPTION.  If set to True and a single subject selected the
+        DESCRIPTION.  If set to True and a single subject is selected, the
                     eeg is displayed for just 1 sec of data (vs 16)
 
     Returns
@@ -45,8 +45,7 @@ def load_subjects(params, subject='All', zoom=False):
                     256 Hz = 16 seconds. 
     '''
     
-    def load_one(subject_number, num_freqs):
-    
+    def load_one(subject_number):
         '''
         The file for the subject is read and the eeg at each stimulus
         frequency is returned.
@@ -55,8 +54,6 @@ def load_subjects(params, subject='All', zoom=False):
         ----------
         subject_number : integer from the closed set [0, 11]
             DESCRIPTION.  Data for this subject is loaded
-        num_freqs : integer 
-            DESCRIPTION. number stimulus frequencies in file
 
         Returns
         -------
@@ -67,16 +64,12 @@ def load_subjects(params, subject='All', zoom=False):
                         4096 time points at 256 Hz = 16 seconds. 
         '''
         
-        df = pd.read_csv(f'subject{subject_number}.csv') 
-                                                # not actually a CSV
-        len_eeg = df.shape[0]
-        #initialize
-        eeg = np.zeros((num_freqs, len_eeg))
-        # read line-by-line and populate eeg
-        for df_index in range(len_eeg):
-            df_line = df.iloc[df_index].values  # a ';' separated string 
-            str_list = df_line[0].split(';')
-            eeg[:,df_index] = [int(x) for x in str_list]
+        # Load the data using a semicolon as the separator
+        df = pd.read_csv(f'subject{subject_number}.csv', sep=';') 
+
+        # Transpose to a numpy array of integers in the shape (num_freq x num_times)
+        eeg = df.values.astype(int).T
+
         return eeg
 
 
@@ -91,11 +84,11 @@ def load_subjects(params, subject='All', zoom=False):
         # populate with data from each subject
         for sub_num in range(n_subjects):
             eeg_array[(sub_num*num_freqs):((sub_num+1)*num_freqs) ,:] =   \
-                            load_one(sub_num+1, num_freqs)
+                            load_one(sub_num+1)
                             
                             
     else:  # load indicated subject and plot EEG for each stimulus
-        eeg_array = load_one(subject, num_freqs)
+        eeg_array = load_one(subject)
         # display data
         freqs = params['frequencies']
         time = np.arange(0,len_eeg)/params['fs']
