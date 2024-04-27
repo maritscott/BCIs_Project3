@@ -113,20 +113,21 @@ def load_subjects(params, subject='All', zoom=False):
 def is_saturated(epoch, criterion):
     '''
     Helper function for epoch_data() determines if an epoch has saturated
-    it's ADC for more than  criterion  consequtive time points
+    it's ADC for more than  `criterion`  consequtive time points
 
     Parameters
     ----------
     epoch : TYPE     1d array of integers 
         DESCRIPTION.   EEG values in close interval [0, 1023] from the ADC
-    criterion : TYPE  interger
-        DESCRIPTION.   if  criterion 0's or 1023's apear sequentially in
+    criterion : TYPE  Integer
+        DESCRIPTION.   If  `criterion`  0's or 1023's appear sequentially in
                 the epoch the function returns True  (else False)
 
     Returns
     -------
-    bool    
-        DESCRIPTION.  see criterion above
+    bool
+        DESCRIPTION.   True if  `criterion`  or more 0's or 1023's appear sequentially
+                in an epoch. (else False)
 
     '''
     one_less = criterion - 1
@@ -156,10 +157,10 @@ def is_saturated(epoch, criterion):
 def epoch_data(eeg_data, time_period, overlap, parameters, 
                saturation_criterion):
     '''
-    Helper function for ger_feature_vectors()
-    Return epochs of data of length time_period statrting from 
-    the begining of eeg_data  with overlapping of time period of 
-    proportion overlap.
+    Helper function for get_feature_vectors()
+    Returns epochs of eeg data, each with a length of `time_period`,
+    starting from the beginning of `eeg_data` with overlapping of 
+    time period of proportion `overlap`.
 
     Parameters
     ----------
@@ -171,8 +172,8 @@ def epoch_data(eeg_data, time_period, overlap, parameters,
     time_period : float  from the open interval (0, 16)
         DESCRIPTION.  Duration of each epoch
     overlap : float    from open interval (0, 1)
-        DESCRIPTION.  amount intervals may overlap.  With a large 
-                    overlap many epochs can be obtained from the 
+        DESCRIPTION.  percentage that intervals may overlap in decimal form.
+                    With a large overlap many epochs can be obtained from the 
                     16 second EEG even with a relatively large time_period
     parameters : Dictionary    
         DESCRIPTION.  Contains basic parameters describing the data files.
@@ -260,11 +261,11 @@ def get_feature_vectors(eeg_data, period, overlap, params,
     ----------
     eeg_data : eeg : 2d array of float 
                     (num_subjects * num_stim_freqs) x num_times
-        DESCRIPTION.  for each s.ubject an EEG from num_freqs stimulation 
-                    frequencies The EEG values are in arbitray units since
+        DESCRIPTION.  for each subject an EEG from num_freqs stimulation 
+                    frequencies The EEG values are in arbitrary units since
                     an unknown amplification occurs during acquisition.
                     The sampling is 4096 point at 256 Hz = 16 seconds.
-    period : float  from the open interval (0, 16)
+    period : float from the open interval (0, 16)
         DESCRIPTION.  Duration of each epoch
     overlap : float    from open interval (0, 1)
         DESCRIPTION.  amount intervals may overlap.  With a large 
@@ -274,7 +275,7 @@ def get_feature_vectors(eeg_data, period, overlap, params,
         DESCRIPTION.  Contains basic parameters describing the data files.
                     See the test file for specifics for this data set. 
                     Includes fs (sampling freqeuncy)
-    saturation_criterion : interger (optional with default of 4)
+    saturation_criterion : Integer (optional with default of 4)
         DESCRIPTION.  Number of consecutive eeg values at maximum (1023)
                         or minimum (0) to qualify for censoring an epoch.
                         A large value (4000) eliminates censoring.   4 is
