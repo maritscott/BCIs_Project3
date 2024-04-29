@@ -10,6 +10,8 @@ import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
 import tensorflow as tf
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score
 import seaborn as sns
 import pickle
 
@@ -101,8 +103,8 @@ def load_subjects(params, subject='All', zoom=False):
         # display data
         freqs = params['frequencies']
         time = np.arange(0,len_eeg)/params['fs']
+
         plt.figure(1, figsize = (8,8), clear = True)
-        
         for i in range(4):
             plt.subplot(4,1,i+1)
             plt.plot(time, eeg_array[i, :])
@@ -112,10 +114,10 @@ def load_subjects(params, subject='All', zoom=False):
                 plt.xlim(7,8)
         plt.xlabel('Time (seconds)')
         
-        plt.suptitle(f'EEG by Stimulus Frequencies, Subject {subject} (voltage units unknown)')
+        plt.suptitle(f'EEG by Stimulus Frequencies, Subject {subject} (Voltage digitized [0,1023])')
         plt.tight_layout()
         plt.show()    
-        
+        plt.savefig('fig1')
     return eeg_array    
 
 
@@ -490,22 +492,67 @@ def train_and_test_NN(training_data, training_class,
                             testing_data, testing_class,
                             eval_params,
                             single_freq = None,
-                            plot_confusion_table=False):
-    # Implements a NN with a single hidden layer using tensorflow/keras.
-    # A two class model classifies a vector as being 'single_freq' 
-    # versus not 'single_freq (ovr).  If single_freeq is left as None
-    # a four class model is used.
+                            plot_confusion_table=False, save_to=None):
+    '''
+    Implements a NN with a single hidden layer using tensorflow/keras.
+    A two class model classifies a vector as being 'single_freq' 
+    versus not 'single_freq (ovr).  If single_freeq is left as None
+    a four class model is used.
+
+    Parameters
+    ----------
+    training_data :  float 2d array -> num_vectors x length of feature vector
+        DESCRIPTION.  Frequency amplitude magnitues betwee 4 and 32 Hz. Used
+                    for training
+    training_class : interger 1d array  -> num_vectors
+        DESCRIPTION. Class of ftraining eature vectors from closed set [0,3]
+    testing_data : float 2d array -> num_vectors x length of feature vector
+        DESCRIPTION.  Frequency amplitude magnitues betwee 4 and 32 Hz. Used
+                    for tresting
+    testing_class : interger 1d array  -> num_vectors
+        DESCRIPTION. Class of testing feature vectors from closed set [0,3
+    eval_params : dictionary 
+        DESCRIPTION.  Contains values of parameters used to select and
+                    split the training/testing set.
+                    eval_params = {'period' : period,
+                                   'overlap' : overlap,
+                                   'saturation_criterion' : saturation_criterion,
+                                   'is_random_split' : is_random_split,
+                                   'proportion_train' : proportion_train,
+                                   'test_subjects' : test_subjects}
+
+    single_freq : integer, optional or drawn from close set [0,3]
+        DESCRIPTION. The default is None in which case the data is 
+                    analize in as a 4-class problem. If and integer
+                    the is trated as a 2-class problem with single_freq
+                    being assigned class 1 and all others to class 0
+    plot_confusion_table : boolean, optional
+        DESCRIPTION. The default is False.  True plots a confusion matrix
+    save_to : string optional
+        DESCRIPTION. The default is None.  path/filename to save confusion
+                    matrix.  Ignored if above is False.
+
+    Returns
+    -------
+    test_accuracy : float
+        DESCRIPTION. Proportion of correct classifications in the testing
+                  set.
+    prediction_probabilities ; float
+        DESCRIPTION.  Probability of each class (softmax output)
+   
+    '''
     
-    
-    if single_freq == None:     # alias for 4-class training
+    if single_freq == None:     # alias input data for 4-class training
         num_out_layers = 4
         test_class = testing_class
         train_class = training_class
-    else:  # reassign classes as 0 or 1 for ovr
+    else:  # A 2-class problem.  reassign classes as 0 or 1 for ovr model
         num_out_layers = 2
+        
         # identify class 1 (e.g. single_freq)
         training_ones = np.where(training_class == single_freq)
         testing_ones = np.where(testing_class == single_freq)
+        
         # initiate all classes to 0 except single frequency to Class 1
         train_class = np.zeros_like(training_class)
         train_class[training_ones] = 1
@@ -524,7 +571,7 @@ def train_and_test_NN(training_data, training_class,
     # set loss function
     loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
     
-    model.compile(optimizer='adam', # Aplies adaptive step sizes and momentum
+    model.compile(optimizer='adam', # Applies adaptive step sizes and momentum
                   loss=loss_fn,         # to gradient descent.
                   metrics=['accuracy'])
     #train
@@ -532,7 +579,6 @@ def train_and_test_NN(training_data, training_class,
 
     test_loss, test_accuracy = model.evaluate(testing_data,  
                                            test_class, verbose=0)
-    #print('\nTest Accuracy:', test_accuracy)
     
     # softmax allows treatment of numeric output as probability of each
     # class
@@ -551,40 +597,86 @@ def train_and_test_NN(training_data, training_class,
         pred_class = np.argmax(prediction_probabilities, axis = -1)
         test_accuracy = report(testing_class, pred_class, 
                                prediction_probabilities, eval_params,
-                               'NN 4Class', plot_confusion_table)
+                               'NN 4Class', plot_confusion_table, save_to)
+    
     return test_accuracy, prediction_probabilities
 
 
 def train_and_test_NN_ovr(training_data, 
-                                    training_class,
-                                    testing_data, 
-                                    testing_class, eval_params,
-                                    plot_confusion_table=False):
-    # ovr --> one versus the rest
+                          training_class,
+                          testing_data, 
+                          testing_class, eval_params,
+                          plot_confusion_table=False, 
+                          save_to=None):
+    '''
+    This does a multiclass classification using an ovr (one-versus-the-rest)
+    strategy.  A binary classification is performed for each class, e.g.
+    the designated class is assined to class 1 and all other classes to 
+    class 0.  The binary classification is run and probabilities of 
+    each "class 1"  is recorded.  The final classification is the class 
+    with the highest probability from the multiple runs.
+    Parameters
+    ----------
+    training_data :  float 2d array -> num_vectors x length of feature vector
+        DESCRIPTION.  Frequency amplitude magnitues betwee 4 and 32 Hz. Used
+                    for training
+    training_class : interger 1d array  -> num_vectors
+        DESCRIPTION. Class of ftraining eature vectors from closed set [0,3]
+    testing_data : float 2d array -> num_vectors x length of feature vector
+        DESCRIPTION.  Frequency amplitude magnitues betwee 4 and 32 Hz. Used
+                    for tresting
+    testing_class : interger 1d array  -> num_vectors
+        DESCRIPTION. Class of testing feature vectors from closed set [0,3
+    eval_params : dictionary 
+        DESCRIPTION.  Contains values of parameters used to select and
+                    split the training/testing set.
+                    eval_params = {'period' : period,
+                                   'overlap' : overlap,
+                                   'saturation_criterion' : saturation_criterion,
+                                   'is_random_split' : is_random_split,
+                                   'proportion_train' : proportion_train,
+                                   'test_subjects' : test_subjects}
+    plot_confusion_table : boolean, optional
+        DESCRIPTION. The default is False.  True plots a confusion matrix
+    save_to : string optional
+        DESCRIPTION. The default is None.  path/filename to save confusion
+                    matrix.  Ignored if above is False.
+
+    Returns
+    -------
+    accuracy : float
+        DESCRIPTION. Accuracy of classification on the testing set.
+
+    '''
+    # ovr --> one-versus-the-rest
     # initialize to save the results of each call to train_and_test_NN()
-    probabilities = np.zeros((testing_data.shape[0],4))
+    num_classes = 4
+    probabilities = np.zeros((testing_data.shape[0],num_classes))
     
-    # trains and test each frequency as a 2 class against the other 
-    # frequencies as a group  (runs a 2-class 4 times.)  Compare the 
-    # probability of each class from the individual runs
-    # against the others as a group and assigh to the class with the 
+    # trains and tests each frequency as a class against the other 
+    # frequencies as a group  (runs a 2-class model 4 times.)  Compares 
+    # the probability of each class from the individual runs
+    # against the other individual runs and assigns to the class with the 
     # highest probabiity    
-    for freq_to_test in range(4):
+    
+    for freq_to_test in range(num_classes):
         accuracy, predictions = train_and_test_NN(training_data, 
                                         training_class,
                                         testing_data, 
                                         testing_class, 
                                         eval_params,
-                                        single_freq=freq_to_test)
+                                        single_freq=freq_to_test,
+                                        save_to = None)
         probabilities[:,freq_to_test] = predictions[:,1]
-
-
+    #winning class has highest probabiity
     pred_class = np.argmax(probabilities, axis=-1)
+    #
     accuracy = np.sum(pred_class == testing_class)       \
-                                /testing_class.shape[0]
+     #                           /testing_class.shape[0]
                               
-    report(testing_class, pred_class, probabilities, eval_params, 'NN ovr',
-           plot_confusion_table)
+    accuracy = report(testing_class, pred_class, probabilities, 
+                      eval_params, 'NN ovr',
+                      plot_confusion_table,save_to=save_to)
 
     if False:   #for testing
         print('probs are:')
@@ -601,27 +693,59 @@ def train_and_test_NN_ovr(training_data,
 def simple_LR(training_data, training_class,
                                     testing_data, 
                                     testing_class, eval_params,
-                                    plot_confusion_table=False):
+                                    plot_confusion_table=False,
+                                    save_to=None):
+    '''
+    Implements logistic regression form scikit sklearn.  The four classes
+    are handled with a ovr strategy.
 
-    from sklearn.linear_model import LogisticRegression
-    from sklearn.metrics import accuracy_score
+    Parameters
+    ----------
+    training_data :  float 2d array -> num_vectors x length of feature vector
+        DESCRIPTION.  Frequency amplitude magnitues betwee 4 and 32 Hz. Used
+                    for training
+    training_class : interger 1d array  -> num_vectors
+        DESCRIPTION. Class of ftraining eature vectors from closed set [0,3]
+    testing_data : float 2d array -> num_vectors x length of feature vector
+        DESCRIPTION.  Frequency amplitude magnitues betwee 4 and 32 Hz. Used
+                    for tresting
+    testing_class : interger 1d array  -> num_vectors
+        DESCRIPTION. Class of testing feature vectors from closed set [0,3
+    eval_params : dictionary 
+        DESCRIPTION.  Contains values of parameters used to select and
+                    split the training/testing set.
+                    eval_params = {'period' : period,
+                                   'overlap' : overlap,
+                                   'saturation_criterion' : saturation_criterion,
+                                   'is_random_split' : is_random_split,
+                                   'proportion_train' : proportion_train,
+                                   'test_subjects' : test_subjects}
+    plot_confusion_table : boolean, optional
+        DESCRIPTION. The default is False.  True plots a confusion matrix
+    save_to : string optional
+        DESCRIPTION. The default is None.  path/filename to save confusion
+                    matrix.  Ignored if above is False.
+
+    Returns
+    -------
+    accuracy : float
+        DESCRIPTION. Accuracy of classification on the testing set.
+
+
+    '''
+
     
-    
-    # Create and train the logistic regression model
+    # Create and train the logistic regression model in sklearn
     model = LogisticRegression(max_iter=500, multi_class='ovr')
     model.fit(training_data, training_class)
     
     # Make predictions on the test set
     pred_class = model.predict(testing_data)
     
-    # Calculate accuracy
-    accuracy = accuracy_score(testing_class, pred_class)
-    #print("Accuracy (simple LR):", accuracy)
-    #print("Number of iterations:", model.n_iter_)
-    
-    probabilities  = 0
-    report(testing_class, pred_class,probabilities, eval_params, 
-           'LR ovr', plot_confusion_table)
+    probabilities  = 0  # not directly interpretable with an ovr approach
+    accuracy = report(testing_class, pred_class,probabilities, 
+                      eval_params, 
+                      'LR', plot_confusion_table, save_to=save_to)
 
     return accuracy
 
@@ -720,6 +844,8 @@ def report(testing_class, predicted_class, prediction_probabilities,
         plt.tight_layout()
         plt.show()
         
+        if not (save_to == None):
+            plt.savefig(save_to)
     return accuracy
 
 
