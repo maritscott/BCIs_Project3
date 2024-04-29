@@ -6,7 +6,7 @@ Created on Fri Apr 19 14:31:39 2024
 @author: marit scott, sadegh khodabandeloo, ron bryant, michael gallo
 
 This test file does more than test the module proj3.py.  It also serves 
-as a notebook facilitate experiments with the data.  What follows are 
+as a notebook to facilitate experiments with the data.  What follows are 
 general instructions.  Each cell contains specific instruction for 
 setting parameters to control the functions of the proj3 module.
 
@@ -14,7 +14,7 @@ Cells 0 and 1 must be run once per session (or after a reset)
 Cell 0) No need to modify, these parameters describe this raw data set.
 Cell 1) Loads all subject's data.   (see Cell 7 for a single subject.)
 
-Cell 2) Edit the  three parameters (see cell) and run to to epoch the eeg
+Cell 2) Edit the three parameters (see cell) and run to to epoch the eeg
         data with the desired period, overlap, and censoring criterion.
 Cell 3) Edit the three parameters  (see cell) and run to split the epochs
         randomly or in a biased fashion.  If biased 1 or 2 subjects are 
@@ -28,10 +28,12 @@ Cells 5), 6), and 7) train the three models on the training sets returned
         or each class and the false classification rate.
 Cell 8) Summarizes the eval_parameters and accuracy from each model.
       
-Running the file from the top will execute only these cells. (Assuming the 
+Running the file from the top will execute only Cells 0 to 8. (Assuming the 
 if statements of the remaining cells are set to False.) Some of the 
-remaining cells generate statistics to compare models and take alot 
+remaining cells generate statistics to compare models and take a lot 
 of time to run.
+
+Run Cell 0) before those below to put data_parameters on the workwspace. to pu
 
 Cell 9) Loads and plots a single subject.  Change parameters in cell
 Cell 10) Was used to determine the frequency of analog to digital 
@@ -46,9 +48,6 @@ Cell 12a,b,c) "Duplicates" the Acampora et. al. study of comparing logistic
         the same style as in their paper.
 Cell 13) Runs paired t-tests on the data from 12.  ???????
 
-TO DO:
-    Add  figures of merit
-    Add my NN Class
     
     
 """
@@ -57,6 +56,9 @@ TO DO:
 import numpy as np
 import proj3 as p3
 from matplotlib import pyplot as plt
+from scipy import stats
+    
+
 
 # dataset parameters  defined for source data set
 fs = 256             # sampling frequency Hz
@@ -145,7 +147,7 @@ print(f' NN 4Class accuracy: {accuracy_4class}')
 save_to = None
 ##########################################
 
-accuracy_ovr = p3.train_and_test_NN_ovr(training_data, 
+accuracy_ovr, _ = p3.train_and_test_NN_ovr(training_data, 
                                 training_class,
                                 testing_data, 
                                 testing_class, eval_parameters,
@@ -160,7 +162,7 @@ print(f' NN ovr accuracy: {accuracy_ovr}')
 save_to = None
 ###########################
 
-accuracy_LR = p3.simple_LR(training_data, training_class,
+accuracy_LR, _ = p3.simple_LR(training_data, training_class,
                            testing_data, 
                            testing_class, eval_parameters,
                            plot_confusion_table=True, save_to=save_to)
@@ -199,68 +201,34 @@ if False:  #leave this as False.  Simply run Cell 9 or Cell 10
             print(f'Subject {subject+1}. Saturated low:{np.any(eeg_array[freq,:]==0)}, high:{np.any(eeg_array[freq,:]==1023)}')
 
 
-
 #%% Cell 11     Statistical comparison of methods
-# This cell runs each of 3 networks through multiple repetions, 
-# resplitting training and testing epochs data each time and compares
-#  the accuracy of the three training methods (as per Acampora et. al.)
-
-############# To Run this cell ##############
-#    1) Go to cells 2 and 3  to select  epoching and splitting paramenters
-#    2) Run cells 0,1,2,3,4
-#    3) Define repetitions below
-#    4) Set first line below to True
-#    5) Run this cell.
-
 if False:
-    repetitions = 10   # This was used Acampora et. al.
-
-    #####################################################################
-    # Prepare accuracy_array
-    accuracy_array = np.zeros([3, repetitions])
-
-    for rep_index in range(repetitions):
-
-        accuracy_array[0, rep_index], _ =    \
-               p3.train_and_test_NN(training_data, training_class,
-                                    testing_data, 
-                                    testing_class, eval_parameters)
-
-        accuracy_array[1, rep_index] =       \
-               p3.train_and_test_NN_ovr(training_data, 
-                                        training_class,
-                                        testing_data, 
-                                        testing_class, eval_parameters)
-
-        accuracy_array[2, rep_index] =        \
-               p3.simple_LR(training_data, training_class,
-                                        testing_data, 
-                                        testing_class, eval_parameters)
-        # resplit       
-        if is_random_split: # Random feature vector assignment to train and test sets
-            training_data, testing_data, training_class, testing_class  =    \
-                        p3.split_feature_set(features, classes, is_censored,
-                                             proportion_train, data_parameters)
-        else:  # Testing set all of 1 or 2 subjects and others used for training   
-            training_data, testing_data, training_class, testing_class  =    \
-                        p3.biased_split_feature_set(features, classes, 
-                                                    is_censored,
-                                                    data_parameters,
-                                                    test_subjects) 
-        print(f'Finished repetition {rep_index}  . . .')
-    means = np.round(np.mean(accuracy_array, axis = -1),4)
-    sds = np.round(np.std(accuracy_array, axis = -1),4)          
-    print(f'\n\n\nRepetitions = {repetitions}')
-    print(f'Accuracy for Period of {period} seconds with overlap {overlap}')
-    print(f'Spliting of data sets is random = {is_random_split}')
-    print(f'Training proportion is {proportion_train}')
-    print(f'Saturation_criterion = {saturation_criterion}')
-    print('Accuracy')
-    print(f'   NN 4Class: {means[0]} +/- {sds[0]}' )
-    print(f'   NN ovr   : {means[1]} +/- {sds[1]}' )
-    print(f'   LR ovr   : {means[2]} +/- {sds[1]}' )
-              
-#%%  Cell 12a    THIS CELL TAKES AN 30+ MINUTES TO RUN! 5x6x3x10
+    period = 6
+    overlap = 0.95
+    saturation_criterion = 4
+    is_random_split = True
+    proportion_train = 0.8
+    #if is_random_split test_subjects are ignored,  if False
+    # Testing set all of the 1 or 2 subjects in the list 
+    #     and others used for training   
+    test_subjects = [1,2] # list of 1 or 2 integers from closed set [1,11]
+    repetitions = 50
+    save_to = 'fig_histo'
+    ####################################################################
+    
+    eval_parameters = {'period' : period,
+                       'overlap' : overlap,
+                       'saturation_criterion' : saturation_criterion,
+                       'is_random_split' : is_random_split,
+                       'proportion_train' : proportion_train,
+                       'test_subjects' : test_subjects}
+    
+    p3.compare_models(repetitions, eval_parameters, data_parameters,
+                      save_to=save_to)
+    
+    
+                  
+#%%  Cell 12a    THIS CELL TAKES AN 30+ MINUTES TO RUN! 5x6x3x10 or more
 # Full run of comparisons. 
 # Results of runs censored at 4 and  without censoring are saved in
 # censiredSet.pkl and fullset0.pkl respectively   plots of each are in
@@ -316,11 +284,10 @@ if False:
 #%% Cell 13 Run paired t-test on selected epoch sets  
 ## I didn't write a function to do this because that would lead to a 
 ## doing a bunch of t-tests and risking a bunch of false discoveries.
-##  These are th only ones we felt the need to do.  Also quick and dirty 
+##  These are the only ones we felt the need to do.  Also quick and dirty 
 ##  histograms visualize the data.
+
 if False: 
-    from scipy import stats
-    
     # load censored data -- an epoch is censored if >= 4 consecutive 
                                 # saturated time points occur in the epoch
     file_name = 'censoredSet.pkl'
@@ -395,7 +362,7 @@ if False:
     plt.ylim(0.5,1)
     plt.ylabel('Accuracy (proportion)')
     plt.legend(loc = 4)
-    plt.title('Testing Max Scores (95% overlap')
+    plt.title('Testing Max Scores (95% overlap)')
     plt.grid()
 
     plt.show()
@@ -423,7 +390,8 @@ if False:
         plt.show()
         
 #%% Cell  Constructing a NNclass to perform back prop
-
+            # works well (in same ball park as the other 3 models), but
+            # haven't had chance to program in any optimizers.
 if False:   # UNDER CONSTRUCRTION
     from NNclass import *
     

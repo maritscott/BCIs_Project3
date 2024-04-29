@@ -4,6 +4,16 @@
 Created on Fri Apr 19 14:08:45 2024
 
 @author: marit scott, sadegh khodabandeloo, ron bryant, michael gallo
+
+A series of functions to assess the 4-frequency EEG data of Acampora et. al..
+and compare their LR model to two neural networks with a single hidden
+layer using a 4-class softmax output layer and an 'ovr' model with a
+sigmoid output layer.  We do a comparison similar to how they compared
+their LR model to a Linear Discriminant Analysis in their paper.
+Detailed evaluation of their data lead to some question of the 
+appropriatenes of their epoching strategy on this data set of 
+limited size.  So some functions are introduced to evalute the 
+limitations of this data set.
 """
 
 import numpy as np
@@ -12,12 +22,10 @@ from matplotlib import pyplot as plt
 import tensorflow as tf
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
+from scipy import stats
 import seaborn as sns
 import pickle
 
-
-#from tensorflow.keras.layers import Dense, Flatten, Conv2D
-#from tensorflow.keras import Model
 
 
 def load_subjects(params, subject='All', zoom=False):
@@ -118,13 +126,16 @@ def load_subjects(params, subject='All', zoom=False):
         plt.tight_layout()
         plt.show()    
         plt.savefig('fig1')
+  
     return eeg_array    
 
 
 def is_saturated(epoch, criterion):
     '''
     Helper function for epoch_data() determines if an epoch has saturated
-    it's ADC for more than  criterion  consequtive time points
+    it's ADC for more than  'criterion'  consequtive time points.  This 
+    indicates that the analog to digital converter has clipped extremes of
+    the voltage.
 
     Parameters
     ----------
@@ -137,7 +148,7 @@ def is_saturated(epoch, criterion):
     Returns
     -------
     bool    
-        DESCRIPTION.  see criterion above
+        DESCRIPTION.  Set to True if epoch meets criterion above
 
     '''
     one_less = criterion - 1
@@ -167,10 +178,11 @@ def is_saturated(epoch, criterion):
 def epoch_data(eeg_data, time_period, overlap, parameters, 
                saturation_criterion):
     '''
-    Helper function for ger_feature_vectors()
+    Helper function for get_feature_vectors()
     Return epochs of data of length time_period statrting from 
     the begining of eeg_data  with overlapping of time period of 
-    proportion overlap.
+    proportion overlap.  Also returns each epoch class and whether it
+    meets saturation_criterion
 
     Parameters
     ----------
@@ -252,8 +264,8 @@ def epoch_data(eeg_data, time_period, overlap, parameters,
                                             end_times[epoch_per_eeg_index]]
             epoch_classes[epoch_index] = eeg_index % num_freqs
     
-    is_epoch_censored = np.zeros(num_epochs, dtype=bool)
     # determine if the epochs needs to be censored.
+    is_epoch_censored = np.zeros(num_epochs, dtype=bool)
     for epoch_index in range(num_epochs):
         is_epoch_censored[epoch_index] = is_saturated(epochs[epoch_index],
                                                       saturation_criterion)
@@ -265,7 +277,8 @@ def get_feature_vectors(eeg_data, period, overlap, params,
                         saturation_criterion=4):
     '''
     Epochs the eeg_data based on the period and overlap and generates 
-    and returns feature vectors and classes for each epoch.
+    and returns feature vectors and classes for each epoch along with
+    a boolean iindicator of whether the epoch met censoring criteria.
 
     Parameters
     ----------
@@ -452,6 +465,7 @@ def biased_split_feature_set(features, classes, is_censored,
         testing_indices[features_per_subject: ] =       \
               np.arange((test_list[1]-1) * features_per_subject,   \
                         test_list[1] * features_per_subject)
+    
     #genetate testing set
     testing_set = features[testing_indices.astype(int),:]
     testing_class = classes[testing_indices.astype(int)]
@@ -459,6 +473,7 @@ def biased_split_feature_set(features, classes, is_censored,
     is_censored_testing = is_censored[testing_indices.astype(int)]
     testing_set = testing_set[~is_censored_testing]
     testing_class = testing_class[~is_censored_testing]
+    
     
     # remainder are training set
     mask = np.isin(np.arange(0,num_feature_vectors), 
@@ -472,12 +487,12 @@ def biased_split_feature_set(features, classes, is_censored,
     training_class = training_class[~is_censored_training]
     
     
-    #generate random permutations of the training and testing sets
+    #generate random permutations of the testing set
     set_indices = np.arange(testing_set.shape[0])
     permuted_indices = np.random.permutation(set_indices)
     testing_set=testing_set[permuted_indices]
     testing_class=testing_class[permuted_indices]
-    
+    #and permutaions of the training set
     set_indices = np.arange(training_set.shape[0])
     permuted_indices = np.random.permutation(set_indices)
     training_set=training_set[permuted_indices]
@@ -492,11 +507,12 @@ def train_and_test_NN(training_data, training_class,
                             testing_data, testing_class,
                             eval_params,
                             single_freq = None,
-                            plot_confusion_table=False, save_to=None):
+                            plot_confusion_table=False, 
+                            save_to=None, verbose= 1):
     '''
     Implements a NN with a single hidden layer using tensorflow/keras.
     A two class model classifies a vector as being 'single_freq' 
-    versus not 'single_freq (ovr).  If single_freeq is left as None
+    versus not 'single_freq (ovr).  If single_freq is left as None
     a four class model is used.
 
     Parameters
@@ -504,12 +520,12 @@ def train_and_test_NN(training_data, training_class,
     training_data :  float 2d array -> num_vectors x length of feature vector
         DESCRIPTION.  Frequency amplitude magnitues betwee 4 and 32 Hz. Used
                     for training
-    training_class : interger 1d array  -> num_vectors
+    training_class : interger 1d array  length num_vectors for training
         DESCRIPTION. Class of ftraining eature vectors from closed set [0,3]
     testing_data : float 2d array -> num_vectors x length of feature vector
         DESCRIPTION.  Frequency amplitude magnitues betwee 4 and 32 Hz. Used
                     for tresting
-    testing_class : interger 1d array  -> num_vectors
+    testing_class : interger 1d array  length num_vectors for testing
         DESCRIPTION. Class of testing feature vectors from closed set [0,3
     eval_params : dictionary 
         DESCRIPTION.  Contains values of parameters used to select and
@@ -531,13 +547,15 @@ def train_and_test_NN(training_data, training_class,
     save_to : string optional
         DESCRIPTION. The default is None.  path/filename to save confusion
                     matrix.  Ignored if above is False.
-
+    verbose : interger for set [0,1]
+        DESCRIPTION. If 0 no confusion matrix or intermediate reporting to
+                    the console
     Returns
     -------
     test_accuracy : float
         DESCRIPTION. Proportion of correct classifications in the testing
                   set.
-    prediction_probabilities ; float
+    prediction_probabilities ; float 2d array num_testing_data x num_classes
         DESCRIPTION.  Probability of each class (softmax output)
    
     '''
@@ -546,7 +564,7 @@ def train_and_test_NN(training_data, training_class,
         num_out_layers = 4
         test_class = testing_class
         train_class = training_class
-    else:  # A 2-class problem.  reassign classes as 0 or 1 for ovr model
+    else:  # A 2-class problem.  reassign classes as 0 or 1 for 'ovr' model
         num_out_layers = 2
         
         # identify class 1 (e.g. single_freq)
@@ -589,11 +607,10 @@ def train_and_test_NN(training_data, training_class,
     
 ########################################################################    
 ################# How to capitalize on these probabilities for confidence
-##############    in the decision???????????
+##############    in the decision???????????   Discuss in report
     prediction_probabilities = probability_model.predict(testing_data, verbose=0)
   
-    if single_freq == None:
-        #print(f'average winning prob in NN 4Class = {np.mean(np.max(prediction_probabilities,  axis=-1))}')
+    if (single_freq == None) and (verbose == 1):
         pred_class = np.argmax(prediction_probabilities, axis = -1)
         test_accuracy = report(testing_class, pred_class, 
                                prediction_probabilities, eval_params,
@@ -607,7 +624,7 @@ def train_and_test_NN_ovr(training_data,
                           testing_data, 
                           testing_class, eval_params,
                           plot_confusion_table=False, 
-                          save_to=None):
+                          save_to=None, verbose=1):
     '''
     This does a multiclass classification using an ovr (one-versus-the-rest)
     strategy.  A binary classification is performed for each class, e.g.
@@ -615,17 +632,18 @@ def train_and_test_NN_ovr(training_data,
     class 0.  The binary classification is run and probabilities of 
     each "class 1"  is recorded.  The final classification is the class 
     with the highest probability from the multiple runs.
+    
     Parameters
     ----------
     training_data :  float 2d array -> num_vectors x length of feature vector
         DESCRIPTION.  Frequency amplitude magnitues betwee 4 and 32 Hz. Used
                     for training
-    training_class : interger 1d array  -> num_vectors
+    training_class : interger 1d array  length num_vectors for training
         DESCRIPTION. Class of ftraining eature vectors from closed set [0,3]
     testing_data : float 2d array -> num_vectors x length of feature vector
         DESCRIPTION.  Frequency amplitude magnitues betwee 4 and 32 Hz. Used
                     for tresting
-    testing_class : interger 1d array  -> num_vectors
+    testing_class : interger 1d array  length num_vectors for testing
         DESCRIPTION. Class of testing feature vectors from closed set [0,3
     eval_params : dictionary 
         DESCRIPTION.  Contains values of parameters used to select and
@@ -641,13 +659,17 @@ def train_and_test_NN_ovr(training_data,
     save_to : string optional
         DESCRIPTION. The default is None.  path/filename to save confusion
                     matrix.  Ignored if above is False.
-
+    verbose : interger for set [0,1]
+        DESCRIPTION. If 0 no confusion matrix or intermediate reporting to
+                    console.
     Returns
     -------
     accuracy : float
         DESCRIPTION. Accuracy of classification on the testing set.
-
+    probabiities : float 2d array num_testing_data x num_classes
+        DESCRIPTION.  Probability of each class in the ovr algorithm
     '''
+
     # ovr --> one-versus-the-rest
     # initialize to save the results of each call to train_and_test_NN()
     num_classes = 4
@@ -670,23 +692,17 @@ def train_and_test_NN_ovr(training_data,
         probabilities[:,freq_to_test] = predictions[:,1]
     #winning class has highest probabiity
     pred_class = np.argmax(probabilities, axis=-1)
-    #
-    accuracy = np.sum(pred_class == testing_class)       \
-     #                           /testing_class.shape[0]
                               
-    accuracy = report(testing_class, pred_class, probabilities, 
+    if verbose == 1:
+        accuracy = report(testing_class, pred_class, probabilities, 
                       eval_params, 'NN ovr',
                       plot_confusion_table,save_to=save_to)
-
-    if False:   #for testing
-        print('probs are:')
-        print(probabilities[:10,:])    
-        print('predicted')
-        print(pred_class[:10])
-        print('Truth')
-        print(testing_class[:10])
+    else:
+        accuracy = report(testing_class, pred_class, probabilities, 
+                      eval_params, 'NN ovr',
+                      plot_confusion_table=False, save_to=save_to)
    
-    return accuracy
+    return accuracy, probabilities
 
 
 
@@ -694,22 +710,22 @@ def simple_LR(training_data, training_class,
                                     testing_data, 
                                     testing_class, eval_params,
                                     plot_confusion_table=False,
-                                    save_to=None):
+                                    save_to=None, verbose=1):
     '''
-    Implements logistic regression form scikit sklearn.  The four classes
-    are handled with a ovr strategy.
+    Implements logistic regression from scikit sklearn.  The four classes
+    are handled with a 'ovr' strategy.
 
     Parameters
     ----------
     training_data :  float 2d array -> num_vectors x length of feature vector
         DESCRIPTION.  Frequency amplitude magnitues betwee 4 and 32 Hz. Used
                     for training
-    training_class : interger 1d array  -> num_vectors
+    training_class : interger 1d array  length num_vectors for training
         DESCRIPTION. Class of ftraining eature vectors from closed set [0,3]
     testing_data : float 2d array -> num_vectors x length of feature vector
         DESCRIPTION.  Frequency amplitude magnitues betwee 4 and 32 Hz. Used
                     for tresting
-    testing_class : interger 1d array  -> num_vectors
+    testing_class : interger 1d array  length num_vectors for testing
         DESCRIPTION. Class of testing feature vectors from closed set [0,3
     eval_params : dictionary 
         DESCRIPTION.  Contains values of parameters used to select and
@@ -725,13 +741,15 @@ def simple_LR(training_data, training_class,
     save_to : string optional
         DESCRIPTION. The default is None.  path/filename to save confusion
                     matrix.  Ignored if above is False.
-
+    verbose : interger for set [0,1]
+        DESCRIPTION. If 0 no confusion matrix or intermediate reporting to
+                    console.
     Returns
     -------
     accuracy : float
         DESCRIPTION. Accuracy of classification on the testing set.
-
-
+    probabiities : float 2d array num_testing_data x num_classes
+        DESCRIPTION.  Probability of each class in the ovr algorithm
     '''
 
     
@@ -742,43 +760,62 @@ def simple_LR(training_data, training_class,
     # Make predictions on the test set
     pred_class = model.predict(testing_data)
     
-    probabilities  = 0  # not directly interpretable with an ovr approach
-    accuracy = report(testing_class, pred_class,probabilities, 
+    probabilities  = model.predict_proba(testing_data)
+    if verbose == 1:
+        accuracy = report(testing_class, pred_class,probabilities, 
                       eval_params, 
                       'LR', plot_confusion_table, save_to=save_to)
+    else:
+        accuracy = report(testing_class, pred_class,probabilities, 
+                      eval_params, 
+                      'LR', plot_confusion_table=False, save_to=save_to)
 
-    return accuracy
+    return accuracy, probabilities
 
 
 
 
 def report(testing_class, predicted_class, prediction_probabilities,
-           eval_params, predictor_name, plot_confusion_table, save_to):
+           eval_params, predictor_name, plot_confusion_table, save_to=None):
     '''
     This function is called at the end of training each model to calculate 
     the accuracy and electively plot a confusion table.    
 
     Parameters
     ----------
-    testing_class : TYPE
-        DESCRIPTION.
-    predicted_class : TYPE
-        DESCRIPTION.
-    prediction_probabilities : TYPE
-        DESCRIPTION.
-    eval_params : TYPE
-        DESCRIPTION.
-    predictor_name : TYPE
-        DESCRIPTION.
-    plot_confusion_table : TYPE
-        DESCRIPTION.
-    save_to : TYPE
-        DESCRIPTION.
+    testing_class : interger 1d array  length num_vectors for testing
+        DESCRIPTION. Class of testing feature vectors from closed set [0,3
+    predicted_class : interger 1d array  length num_vectors for testing
+        DESCRIPTION. Predicted class of testing feature vectors 
+                    from closed set [0,3
+    prediction_probabilities : floats 2d array num_vectors x num_classes
+        DESCRIPTION.  Not currently used by this function, but could be 
+                        valuable to measure confidence of classification.
+    eval_params : dictionary 
+        DESCRIPTION.  Contains values of parameters used to select and
+                    split the training/testing set.
+                    eval_params = {'period' : period,
+                                   'overlap' : overlap,
+                                   'saturation_criterion' : saturation_criterion,
+                                   'is_random_split' : is_random_split,
+                                   'proportion_train' : proportion_train,
+                                   'test_subjects' : test_subjects}
+    predictor_name : String
+        DESCRIPTION.  Name of predition model used (for labeling output)
+    plot_confusion_table : boolean  
+        DESCRIPTION.   If True plots confusion matrix and sensitivity and
+                    false classification rate to the console
+    save_to : String  'path/filename'
+        DESCRIPTION. optional (default None)  
 
     Returns
     -------
-    accuracy : TYPE
-        DESCRIPTION.
+    accuracy : float
+        DESCRIPTION.  Accuracy as a fraction of 1.
+    class_sensitivities = np.diag(c_matrix) / np.sum(c_matrix, axis=-1) 
+    class_FP_rate = 1-np.diag(c_matrix) / np.sum(c_matrix, axis=0) 
+    class_sensitivities = np.round(class_sensitivities,3)
+    class_FP_rate = np.round(class_FP_rate,3)    
 
     '''
 
@@ -788,14 +825,13 @@ def report(testing_class, predicted_class, prediction_probabilities,
         c_matrix[int(testing_class[i]), int(predicted_class[i])] += 1
     # compute accuracy  = sum of diagonals / sum of all elements  
     accuracy = np.trace(c_matrix) / np.sum(c_matrix)
-    
-    class_sensitivities = np.diag(c_matrix) / np.sum(c_matrix, axis=-1) 
-    class_FP_rate = 1-np.diag(c_matrix) / np.sum(c_matrix, axis=0) 
-    class_sensitivities = np.round(class_sensitivities,3)
-    class_FP_rate = np.round(class_FP_rate,3)    
-    
-    
+        
     if plot_confusion_table:
+        class_sensitivities = np.diag(c_matrix) / np.sum(c_matrix, axis=-1) 
+        class_FP_rate = 1-np.diag(c_matrix) / np.sum(c_matrix, axis=0) 
+        class_sensitivities = np.round(class_sensitivities,3)
+        class_FP_rate = np.round(class_FP_rate,3)    
+    
         print(f'\n\n{predictor_name}: accuracy {np.round(accuracy,3)}')
         print(f'Class sensitivities (class 0-3):{class_sensitivities}')
         print(f'      False Classification Rate (class 0-3):{class_FP_rate}')
@@ -846,6 +882,7 @@ def report(testing_class, predicted_class, prediction_probabilities,
         
         if not (save_to == None):
             plt.savefig(save_to)
+   
     return accuracy
 
 
@@ -858,7 +895,7 @@ def run_set(data_parameters, eval_parameters, save_to,
     Computes the accuracy of each model for each iteration at all the
     peroids/overlaps combinations.   It is designed to reproduce the 
     comparisons made in Acampora et. al.  The periods and overlaps are 
-    those used byby them.  models is a list of our two neural network 
+    those used bby them.  models is a list of our two neural network 
     models and their logistic regression model for comparison.  Using 
     the default values above this code takes an hour to run on my MacBook
 
@@ -868,11 +905,16 @@ def run_set(data_parameters, eval_parameters, save_to,
         DESCRIPTION.  A dictiionary describing the parameters of the 
                     data set.  See the test file (test_proj3.py) for
                     definition.
-    eval_parameters : dictionary
-        DESCRIPTION. A ditionary containing the elective parameters we
-                use to control our models, censor epochs if we elect to,
-                and otherwise evaluate the data. See the test file (test_proj3.py) for
-                definition.
+    eval_params : dictionary 
+        DESCRIPTION.  Contains values of parameters that define the 
+                    epoching, censoring, and spliting of the 
+                    training/testing set.
+                    eval_params = {'period' : period,
+                                   'overlap' : overlap,
+                                   'saturation_criterion' : saturation_criterion,
+                                   'is_random_split' : is_random_split,
+                                   'proportion_train' : proportion_train,
+                                   'test_subjects' : test_subjects}
     save_to : String
         DESCRIPTION.  A valid path/file_name to save the results of this 
                     function.  The '.pkl' extensiion is added to save_to
@@ -888,7 +930,7 @@ def run_set(data_parameters, eval_parameters, save_to,
     Returns
     -------
     full_set : dictionary
-        DESCRIPTION.  The result of are in full_accuracy array.  Other
+        DESCRIPTION.  The results are in full_accuracy array.  Others
                     are saved so the parameters of the computation are
                     known.
                 full_set = {'full_accuracy_array': full_accuracy_array,
@@ -897,6 +939,8 @@ def run_set(data_parameters, eval_parameters, save_to,
                             'overlaps' : overlaps,
                             'models' : models,
                             'iterations' : iterations}
+                full_accuracy_array are accuracy proportions of size 
+                        n_periods x n_overlaps x n_models x n_iterations 
 
     '''
     n_periods = len(periods)
@@ -960,6 +1004,7 @@ def run_set(data_parameters, eval_parameters, save_to,
 
     return full_set
 
+
 def load_processed_data(file_name): 
     '''
     Loads and returns an exisiting .pkl file containg a set fo processed 
@@ -988,7 +1033,8 @@ def plot_cross_val(full_set, model_idx,save_to=None):
     '''
     Plots and optionally saves a figure displaying accuracy with error
     bars from a series of periods and overlaps obtained with a list of 
-    training models in a format that is comparable to Acampora et. al. 
+    training models in a format that is comparable to Figure 6 in
+    Acampora et. al. 
 
     Parameters
     ----------
@@ -1080,6 +1126,145 @@ def plot_cross_val(full_set, model_idx,save_to=None):
 
     plt.show()
 
+    if not (save_to == None):
+        plt.savefig(save_to)
+    
+    return
+
+
+def compare_models(repetitions, eval_params, data_params, save_to= None):
+    '''
+    A defined set of eval_paramets each model is run repetion times and 
+    the mean (+/-sd) accuracy of each model is printed to the console
+    and a paired t-test is calculated between each pair of models. A 
+    histogram is plotted that shows the distribution of accuracy of
+    each model.
+
+    Parameters
+    ----------
+    repetitions : integer > 0
+        DESCRIPTION.  Number of times to run each model
+    eval_params : dictionary 
+        DESCRIPTION.  Contains values of parameters that define the 
+                    epoching, censoring, and spliting of the 
+                    training/testing set.
+                    eval_params = {'period' : period,
+                                   'overlap' : overlap,
+                                   'saturation_criterion' : saturation_criterion,
+                                   'is_random_split' : is_random_split,
+                                   'proportion_train' : proportion_train,
+                                   'test_subjects' : test_subjects}
+    data_params : Dictionary
+        DESCRIPTION.  Describe basic eeg data set parameters  (See test
+                    file for definitions 'test_proj3.py')
+    save_to : String, optional  'path/filename'
+        DESCRIPTION. The default is None.   Otherwise saves a histogram
+                    of accuracy runs to disk.
+
+    Returns
+    -------
+    None.
+
+    '''
+    
+    # load data
+    eeg_data = load_subjects(data_params)
+
+    #epoch_data    
+    features, classes, is_censored =      \
+            get_feature_vectors(eeg_data, eval_params['period'], 
+                                eval_params['overlap'], data_params,
+                                   eval_params['saturation_criterion'])
+    #split data
+    is_random_split = eval_params['is_random_split']
+    if is_random_split:
+        training_data, testing_data, training_class, testing_class  =    \
+                        split_feature_set(features, classes, 
+                                          is_censored,
+                                          eval_params['proportion_train'],
+                                          data_params)
+        test_subjects = []
+    else:  # A biased split 
+        test_subjects = eval_params['test_subjects']
+        training_data, testing_data, training_class, testing_class  =    \
+                        biased_split_feature_set(features, classes, 
+                                                    is_censored,
+                                                    data_params, 
+                                                    test_subjects)
+        n_subs = data_params['num_subjects']
+        eval_params['proportion_train'] =   \
+                               (n_subs - len(test_subjects))/n_subs
+        
+    
+    #initiate 
+    accuracy_array = np.zeros([3, repetitions])
+
+    for rep_index in range(repetitions):
+
+        accuracy_array[0, rep_index], _ =    \
+               train_and_test_NN(training_data, training_class,
+                                    testing_data, 
+                                    testing_class, eval_params, verbose=0)
+
+        accuracy_array[1, rep_index], _ =       \
+               train_and_test_NN_ovr(training_data, 
+                                        training_class,
+                                        testing_data, 
+                                        testing_class, eval_params, verbose=0)
+
+        accuracy_array[2, rep_index],_ =        \
+               simple_LR(training_data, training_class,
+                                        testing_data, 
+                                        testing_class, eval_params, verbose=0)
+        # resplit       
+        if is_random_split: # Random feature vector assignment to train and test sets
+            training_data, testing_data, training_class, testing_class  =    \
+                        split_feature_set(features, classes, is_censored,
+                            eval_params['proportion_train'], data_params)
+        else:  # Testing set all of 1 or 2 subjects and others used for training   
+            training_data, testing_data, training_class, testing_class  =    \
+                        biased_split_feature_set(features, classes, 
+                                                    is_censored,
+                                                    data_params,
+                                                    test_subjects) 
+        print(f'Finished repetition {rep_index}  . . .')
+    
+    #report
+    print(f'\n\n\nRepetitions = {repetitions}')
+    print(f"Accuracy for Period of {eval_params['period']} seconds with overlap {eval_params['overlap']}")
+    print(f'Spliting of data sets is random = {is_random_split}')
+    print(f"Training proportion is {eval_params['proportion_train']}")
+    print(f"Saturation_criterion = {eval_params['saturation_criterion']}")
+    print('Accuracy  and paired t-tests')
+
+    mods = ['NN4Class', 'NNovr  ', 'LR      ']
+    n = len(mods)  # using n and i here 'cause it remove baggage 
+                                # and is more clear 
+    means = np.round(np.mean(accuracy_array, axis = -1),4)
+    sds = np.round(np.std(accuracy_array, axis = -1),4)
+    for i in range(n): # uses i modulo n to compare each pair of models  
+       t_test, p_val = stats.ttest_rel(accuracy_array[i%n,:], 
+                                        accuracy_array[(i+1)%n,:])
+       print(f'   {mods[i]}: {means[i]} +/- {sds[i]}' )
+       print(f'      vs       t-value = {np.round(t_test,2)}, p-value = {np.round(p_val,5)}')
+    # this repeats model[0] but pus t-test in between
+    print(f'   {mods[0]}: {means[0]} +/- {sds[0]}' )  
+    
+    plt.figure(num=1,clear=True)
+    for i in range(n):
+        plt.hist(accuracy_array[i,:], alpha = 0.4, label=f'{mods[i]}')
+    plt.legend()
+    plt.xlabel('Accuracy Proportion')
+    plt.ylabel('Number')
+    title1 = f"Accuracy: Epochs>seconds(overlap%)={eval_params['period']}"
+    title2 = f"({eval_params['overlap']}), Train%={eval_params['proportion_train']}, Random={is_random_split},"
+    if eval_params['saturation_criterion'] >3000:
+        title3  = '  Uncensored'
+    else:
+        title3 = f"  Censor={eval_params['saturation_criterion']}"
+    plt.title(title1+title2+title3)
+    plt.show()
+    
     if not (save_to == None):
         plt.savefig(save_to)
     
