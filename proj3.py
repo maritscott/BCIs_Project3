@@ -8,12 +8,18 @@ Created on Fri Apr 19 14:08:45 2024
 A series of functions to assess the 4-frequency EEG data of Acampora et. al..
 and compare their LR model to two neural networks with a single hidden
 layer using a 4-class softmax output layer and an 'ovr' model with a
-sigmoid output layer.  We do a comparison similar to how they compared
-their LR model to a Linear Discriminant Analysis in their paper.
+sigmoid output layer.  The hidden layer has 100 neurons, RelU activation,
+and 'adam' optimization (adaptive step sizes and momentum.) We do a 
+comparison similar to how they compared their LR model to a Linear 
+Discriminant Analysis in their paper.
+
 Detailed evaluation of their data lead to some question of the 
 appropriatenes of their epoching strategy on this data set of 
 limited size.  So some functions are introduced to evalute the 
-limitations of this data set.
+limitations of this data set.  Aditionally, inspection of the eeg signals 
+in the time domain indicated clipping of the voltage due to ADC
+saturation.  Because of this we developed a function to censor epochs 
+with clipped EEG signals.
 """
 
 import numpy as np
@@ -779,7 +785,9 @@ def report(testing_class, predicted_class, prediction_probabilities,
            eval_params, predictor_name, plot_confusion_table, save_to=None):
     '''
     This function is called at the end of training each model to calculate 
-    the accuracy and electively plot a confusion table.    
+    the accuracy and electively plot a confusion table.  The sensitivity
+    of each class and the false classification rate for each class is
+    reported to the console.
 
     Parameters
     ----------
