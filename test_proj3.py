@@ -309,9 +309,9 @@ if False:  #leave this as False.  Simply run individual cells below
 ## We didn't write a function to do this because that would lead to 
 ## doing a bunch of t-tests and risking a bunch of false discoveries.
 ##  These are the only ones we felt the need to do.  Also quick and dirty 
-##  histograms visualize the data.   This can be done better and 
-## selectively by Cell 11, but was the main comparison we wanted to make 
-## in our pojects
+##  histograms visualize the data.   This differes from Cell 11 in that 
+##  comparisons can be made across evaluation parameters, not just models
+##  and it draws data from runs of the full_set above.
 
  
     
@@ -369,12 +369,12 @@ if False:  #leave this as False.  Simply run individual cells below
           # are period_idx  x  overlap_idx  x  model_idx  x  iteration_idx)
     mean_NNovr_cen = np.round(np.mean(censored[4,5,1,:])*100,1)
     std_NNovr_cen = np.round(np.std(censored[4,5,1,:])*100,1)
-    t_test, p_val = stats.ttest_rel(uncensored[4,5,1,:],censored[4, 5, 1,:])
+    t_test, p_val = stats.ttest_ind(uncensored[4,5,1,:],censored[4, 5, 1,:])
  
     print('\n\nNNovr (uncensored) versus NNovr (censored)  ( 6 second periods with overlap of 95%)')
     print(f'  NNovr (uncensored) accuracy(%):  {mean_NNovr} +/- {std_NNovr} (mean +/- sd, n = 10')
     print(f'  NNovr (censored) accuracy(%):  {mean_NNovr_cen} +/- {std_NNovr_cen} (mean +/- sd, n = 10)')
-    print(f'  Paired t-statistic = {np.round(t_test,2)},  p-value = {np.round(p_val,4)}\n')
+    print(f'  Unpaired t-statistic = {np.round(t_test,2)},  p-value = {np.round(p_val,4)}\n')
     plt.figure(num= 3, clear=True)
     plt.hist(uncensored[4,5,1,:], alpha = 0.5)
     plt.hist(censored[4,5,1,:], alpha = 0.5)
